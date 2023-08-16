@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Unit Tests
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Zig
+        uses: korandoru/setup-zig@v1
+        with:
+          zig-version: "0.12.0"
+      - run: zig build test
