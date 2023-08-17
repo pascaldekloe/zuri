@@ -55,6 +55,7 @@ pub const Parts = struct {
                 else => @panic("illegal character in scheme (never matches)"),
             }
         }
+        if (match.len == 0 or match[0] < 'a' or match[0] > 'z') @panic("scheme without lower case–first letter (never matches)");
 
         if (match.len + 1 != p.raw_scheme.len) return false;
         for (match, 0..) |c, i| {
