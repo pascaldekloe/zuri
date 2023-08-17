@@ -31,7 +31,7 @@ pub const Parts = struct {
     raw_fragment: []const u8 = "",
 
     /// Scheme returns the value normalized.
-    pub fn scheme(p: *Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn scheme(p: *const Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
         if (p.raw_scheme.len < 2) return "";
         var s = p.raw_scheme[0 .. p.raw_scheme.len - 1];
         var b = try allocator.alloc(u8, s.len);
@@ -46,7 +46,7 @@ pub const Parts = struct {
     }
 
     /// HasScheme returns whether the URI scheme normalized to lower-case equals match.
-    pub fn hasScheme(p: *Parts, comptime match: []const u8) bool {
+    pub fn hasScheme(p: *const Parts, comptime match: []const u8) bool {
         // compile-time validation of match
         inline for (match) |c| {
             switch (c) {
@@ -65,7 +65,7 @@ pub const Parts = struct {
     }
 
     /// User returns the value with any and all percent-encodings resolved.
-    pub fn user(p: *Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn user(p: *const Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
         var i: usize = 0;
         while (i < p.raw_userinfo.len) : (i += 1) {
             if (p.raw_userinfo[i] == ':' or p.raw_userinfo[i] == '@') break;
@@ -76,7 +76,7 @@ pub const Parts = struct {
 
     /// HasUser returns whether a user is present, and whether the value with
     /// any and all percent-encodings resolved equals match.
-    pub fn hasUser(p: *Parts, match: []const u8) bool {
+    pub fn hasUser(p: *const Parts, match: []const u8) bool {
         if (p.raw_userinfo.len == 0) return false;
         var i: usize = 0;
         while (i < p.raw_userinfo.len) : (i += 1) {
@@ -86,44 +86,44 @@ pub const Parts = struct {
     }
 
     /// Host returns the value with any and all percent-encodings resolved.
-    pub fn host(p: *Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn host(p: *const Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
         if (p.raw_host.len == 0) return "";
         return unescape(p.raw_host, allocator);
     }
 
     /// HasHost returns whether an authority is present, and whether the host value
     /// with any and all percent-encodings resolved equals match.
-    pub fn hasHost(p: *Parts, match: []const u8) bool {
+    pub fn hasHost(p: *const Parts, match: []const u8) bool {
         if (p.raw_authority.len == 0) return false;
         return equalString(p.raw_host, match);
     }
 
     /// Port returns the value with zero for undefined.
-    pub fn port(p: *Parts) u16 {
+    pub fn port(p: *const Parts) u16 {
         if (p.raw_port.len < 2) return 0;
         return std.fmt.parseInt(u16, p.raw_port[1..], 10) catch 0;
     }
 
     /// Path returns the value with any and all percent-encodings resolved.
-    pub fn path(p: *Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn path(p: *const Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
         if (p.raw_path.len == 0) return "";
         return unescape(p.raw_path, allocator);
     }
 
     /// HasPath returns whether the path with any and all percent-encodings
     /// resolved equals match.
-    pub fn hasPath(p: *Parts, match: []const u8) bool {
+    pub fn hasPath(p: *const Parts, match: []const u8) bool {
         return equalString(p.raw_path, match);
     }
 
     /// Query returns the value with any and all percent-encodings resolved.
-    pub fn query(p: *Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn query(p: *const Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
         if (p.raw_query.len < 2) return "";
         return unescape(p.raw_query[1..], allocator);
     }
 
     /// Fragment returns the value with any and all percent-encodings resolved.
-    pub fn fragment(p: *Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn fragment(p: *const Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
         if (p.raw_fragment.len < 2) return "";
         return unescape(p.raw_fragment[1..], allocator);
     }
@@ -131,7 +131,7 @@ pub const Parts = struct {
     /// HasFragment returns whether a fragment is present, and whether the
     /// fragment value with any and all percent-encodings resolved equals match.
     /// The empty string ("") matches an empty fragment "#" only.
-    pub fn hasFragment(p: *Parts, match: []const u8) bool {
+    pub fn hasFragment(p: *const Parts, match: []const u8) bool {
         if (p.raw_fragment.len == 0) return false;
         return equalString(p.raw_fragment[1..], match);
     }
