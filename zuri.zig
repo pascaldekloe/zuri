@@ -122,6 +122,12 @@ pub const Parts = struct {
         return unescape(p.raw_query[1..], allocator);
     }
 
+    /// HasQuery returns whether the query with any and all percent-encodings
+    /// resolved equals match.
+    pub fn hasQuery(p: *const Parts, match: []const u8) bool {
+        return equalString(p.raw_query, match);
+    }
+
     /// Fragment returns the value with any and all percent-encodings resolved.
     pub fn fragment(p: *const Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
         if (p.raw_fragment.len < 2) return "";
