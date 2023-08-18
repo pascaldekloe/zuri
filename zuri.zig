@@ -754,7 +754,8 @@ fn unescape(raw: []const u8, allocator: std.mem.Allocator) error{OutOfMemory}![]
     // count output size
     var n: usize = 0;
     var i: usize = 0;
-    while (i < raw.len - 2) : (n += 1) i += if (raw[i] == '%') 3 else 1;
+    while (raw.len - i > 2) : (n += 1)
+		i += if (raw[i] == '%') 3 else 1;
     n += raw.len - i;
 
     // output
@@ -767,7 +768,7 @@ fn unescape(raw: []const u8, allocator: std.mem.Allocator) error{OutOfMemory}![]
     // write pointer
     var p = b.ptr;
     i = 0;
-    while (i < raw.len - 2) : (p += 1) {
+    while (raw.len - i > 2) : (p += 1) {
         if (raw[i] != '%') {
             p[0] = raw[i];
             i += 1;
