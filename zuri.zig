@@ -51,11 +51,12 @@ pub const Parts = struct {
         inline for (match) |c| {
             switch (c) {
                 'a'...'z', '0'...'9', '+', '-', '.' => continue,
-                'A'...'Z' => @panic("upper-case in scheme (never matches)"),
-                else => @panic("illegal character in scheme (never matches)"),
+                'A'...'Z' => @compileError("upper-case in scheme (never matches)"),
+                else => @compileError("illegal character in scheme (never matches)"),
             }
         }
-        if (match.len == 0 or match[0] < 'a' or match[0] > 'z') @panic("scheme without lower case–first letter (never matches)");
+        if (match.len == 0 or match[0] < 'a' or match[0] > 'z')
+            @compileError("scheme without lower case–first letter (never matches)");
 
         if (match.len + 1 != p.raw_scheme.len) return false;
         for (match, 0..) |c, i| {
