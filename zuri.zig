@@ -127,7 +127,8 @@ pub const Parts = struct {
     /// HasQuery returns whether the query with any and all percent-encodings
     /// resolved equals match.
     pub fn hasQuery(p: *const Parts, match: []const u8) bool {
-        return equalString(p.raw_query, match);
+        if (p.raw_query.len == 0) return false;
+        return equalString(p.raw_query[1..], match);
     }
 
     /// Fragment returns the value with any and all percent-encodings resolved.
