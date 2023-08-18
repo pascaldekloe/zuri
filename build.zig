@@ -36,7 +36,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-
     const run_main_tests = b.addRunArtifact(main_tests);
 
     // This creates a build step. It will be visible in the `zig build --help` menu,
@@ -44,4 +43,11 @@ pub fn build(b: *std.Build) void {
     // This will evaluate the `test` step rather than the default, which is "install".
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&run_main_tests.step);
+
+    const parse_fuzzer = b.addExecutable(.{
+        .name = "fuzz-parse",
+        .root_source_file = .{ .path = "fuzz-parse.zig" },
+        .optimize = std.builtin.OptimizeMode.ReleaseFast,
+    });
+    b.installArtifact(parse_fuzzer);
 }
