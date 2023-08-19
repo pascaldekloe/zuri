@@ -87,8 +87,8 @@ fn verifyEscapeMatch(parts: zuri.Parts) void {
         fail("escaped scheme {s} does not equal raw scheme {s} in lower-case excluding colon", .{ s, parts.raw_scheme });
     allocator.free(s);
 
-    var u = parts.user(allocator) catch "<user escape took too much memory>";
-    if (parts.hasUser(u) != (parts.raw_userinfo.len != 0))
+    var u = parts.userinfo(allocator) catch "<userinfo escape took too much memory>";
+    if (parts.hasUserinfo(u) != (parts.raw_userinfo.len != 0))
         fail("escaped user {s} is not matched by raw userinfo {s}", .{ u, parts.raw_userinfo });
     allocator.free(u);
 
