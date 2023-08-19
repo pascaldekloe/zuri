@@ -6,7 +6,7 @@ zuri.out: zuri.zig
 
 
 .PHONY: fmt
-fmt: build.zig zuri.zig fuzz-parse.zig
+fmt: build.zig zuri.zig fuzz-parse.zig bench.zig
 	zig $@ $?
 
 doc: zuri.zig
@@ -14,7 +14,7 @@ doc: zuri.zig
 	zig build-lib -fno-emit-bin -femit-docs=$@ $?
 
 
-zig-out: build.zig zuri.zig fuzz-parse.zig
+zig-out: build.zig zuri.zig fuzz-parse.zig bench.zig
 	zig build
 	touch zig-out
 
@@ -24,6 +24,12 @@ zig-out/bin/fuzz-parse: zig-out
 .PHONY: fuzz-parse-console
 fuzz-parse-console: zig-out/bin/fuzz-parse
 	afl-fuzz -i sample -o fuzz -O -- $?
+
+
+zig-out/bin/bench: zig-out
+
+bench.out: zig-out/bin/bench
+	$? | tee $@
 
 
 .PHONY: dist

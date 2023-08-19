@@ -47,7 +47,14 @@ pub fn build(b: *std.Build) void {
     const parse_fuzzer = b.addExecutable(.{
         .name = "fuzz-parse",
         .root_source_file = .{ .path = "fuzz-parse.zig" },
-        .optimize = std.builtin.OptimizeMode.ReleaseFast,
+        .optimize = std.builtin.OptimizeMode.ReleaseSafe,
     });
     b.installArtifact(parse_fuzzer);
+
+    const bench = b.addExecutable(.{
+        .name = "bench",
+        .root_source_file = .{ .path = "bench.zig" },
+        .optimize = std.builtin.OptimizeMode.ReleaseFast,
+    });
+    b.installArtifact(bench);
 }
