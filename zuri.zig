@@ -2,7 +2,8 @@
 
 const std = @import("std");
 const testing = std.testing;
-const errorf = @import("std").debug.print;
+const errorf = std.debug.print;
+const Allocator = std.mem.Allocator;
 
 /// Parts contains a lossless decomposition with all URL components as is. Use
 /// parse to obtain a valid instance. The input string equals the concatenation
@@ -826,4 +827,171 @@ fn equalString(raw: []const u8, match: []const u8) bool {
         if (c != d) return false;
     }
     return i >= raw.len; // match all
+}
+
+const hexTable = "0123456789ABCDEF";
+
+/// NewURL returns a valid URI.
+pub fn newURL(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []const u8, port: ?u16, path_segs: []const []const u8, m: Allocator) error{OutOfMemory}![]u8 {
+    schemeCheck(scheme); // compile-time validation
+
+    // buffer decimal port number
+    var port_serial: [5]u8 = undefined; // range "0"–"65535"
+    var port_offset = port_serial.len;
+    if (port) |portv| {
+        var v: usize = @intCast(portv);
+        while (true) {
+            port_offset -= 1;
+            var decimal: u8 = @intCast(@mod(v, 10));
+            port_serial[port_offset] = '0' + decimal;
+            v /= 10;
+            if (v == 0) break;
+        }
+    }
+
+    // count output bytes
+    var size = scheme.len + 3;
+    if (port) |_| size += 1 + port_serial.len - port_offset;
+    if (userinfo) |u| {
+        size += 1; // "@"
+        for (u) |c| {
+            size += switch (c) {
+                // unreserved ∪ sub-delims ∪ colon
+                'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => 1,
+                else => 3,
+            };
+        }
+    }
+    for (hostname) |c| {
+        size +%= switch (c) {
+            // unreserved ∪ sub-delims
+            'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
+            else => 3,
+        };
+    }
+    for (path_segs) |seg| {
+        size += 1; // "/"
+        for (seg) |c| {
+            size +%= switch (c) {
+                // unreserved ∪ sub-delims ∪ pchar
+                'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => 1,
+                else => 3,
+            };
+        }
+    }
+
+    // output + write pointer
+    var s = try m.alloc(u8, size);
+    var p = s.ptr;
+    inline for (scheme) |c| {
+        p[0] = c;
+        p += 1;
+    }
+    inline for ("://") |c| {
+        p[0] = c;
+        p += 1;
+    }
+
+    if (userinfo) |u| {
+        for (u) |c| {
+            switch (c) {
+                // unreserved ∪ sub-delims ∪ colon
+                'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => {
+                    p[0] = c;
+                    p += 1;
+                },
+                else => {
+                    p[0] = '%';
+                    p[1] = hexTable[c >> 4];
+                    p[2] = hexTable[c & 15];
+                    p += 3;
+                },
+            }
+        }
+
+        p[0] = '@';
+        p += 1;
+    }
+
+    for (hostname) |c| {
+        switch (c) {
+            // unreserved ∪ sub-delims
+            'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => {
+                p[0] = c;
+                p += 1;
+            },
+            else => {
+                p[0] = '%';
+                p[1] = hexTable[c >> 4];
+                p[2] = hexTable[c & 15];
+                p += 3;
+            },
+        }
+    }
+
+    if (port) |_| {
+        p[0] = ':';
+        p += 1;
+        for (port_serial[port_offset..]) |c| {
+            p[0] = c;
+            p += 1;
+        }
+    }
+
+    for (path_segs) |seg| {
+        p[0] = '/';
+        p += 1;
+
+        for (seg) |c| {
+            switch (c) {
+                // unreserved ∪ sub-delims ∪ pchar
+                'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => {
+                    p[0] = c;
+                    p += 1;
+                },
+                else => {
+                    p[0] = '%';
+                    p[1] = hexTable[c >> 4];
+                    p[2] = hexTable[c & 15];
+                    p += 3;
+                },
+            }
+        }
+    }
+
+    return s;
+}
+
+test "URL construction" {
+    // allocate URIs without free to get readable errors (on single line)
+    var buffer: [1024]u8 = undefined;
+    var fix = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fix.allocator();
+
+    // “Internationalized Resource Identifiers” RFC 3987, subsection 3.2.1
+    try testing.expectEqualStrings("http://xn--99zt52a.example.org/%E2%80%AE", try newURL("http", null, "xn--99zt52a.example.org", null, &.{"\u{202E}"}, allocator));
+
+    // “IMAP URL Scheme” RFC 2192, section 10
+    try testing.expectEqualStrings("imap://michael@minbari.org/users.*;type=list", try newURL("imap", "michael", "minbari.org", null, &.{"users.*;type=list"}, allocator));
+    try testing.expectEqualStrings("imap://psicorp.org/~peter/%E6%97%A5%E6%9C%AC%E8%AA%9E/%E5%8F%B0%E5%8C%97", try newURL("imap", null, "psicorp.org", null, &.{ "~peter", "日本語", "台北" }, allocator));
+
+    // “POP URL Scheme” RFC 2384, section 7
+    try testing.expectEqualStrings("pop://rg;AUTH=+APOP@mail.eudora.com:8110", try newURL("pop", "rg;AUTH=+APOP", "mail.eudora.com", 8110, &.{}, allocator));
+
+    // port zero is sometimes used in configruation to match any free port
+    try testing.expectEqualStrings("wss://syncd%40cluster2@ferep%3Atun0:0", try newURL("wss", "syncd@cluster2", "ferep:tun0", 0, &.{}, allocator));
+}
+
+fn schemeCheck(comptime scheme: []const u8) void {
+    inline for (scheme) |c| {
+        switch (c) {
+            'a'...'z', '0'...'9', '+', '-', '.' => {},
+            'A'...'Z' => {
+                @compileError("upper-case in scheme");
+            },
+            else => {
+                @compileError("illegal character in scheme");
+            },
+        }
+    }
 }
