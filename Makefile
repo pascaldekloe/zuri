@@ -1,6 +1,9 @@
 .PHONY: test
 test: zuri.out
 
+.PHONY: bench
+bench: bench.out
+
 zuri.out: zuri.zig
 	zig test $? | tee $@
 
@@ -18,9 +21,10 @@ zig-out: build.zig zuri.zig fuzz-parse.zig fuzz-urn.zig bench.zig
 	zig build
 	touch zig-out
 
-
+zig-out/bin/bench: zig-out
 zig-out/bin/fuzz-parse: zig-out
 zig-out/bin/fuzz-urn: zig-out
+
 
 .PHONY: fuzz-parse-console
 fuzz-parse-console: zig-out/bin/fuzz-parse
@@ -31,8 +35,6 @@ fuzz-urn-console: zig-out/bin/fuzz-urn
 	# samples not applicable yet it does not matter
 	afl-fuzz -i sample -o fuzz-urn -O -- $?
 
-
-zig-out/bin/bench: zig-out
 
 bench.out: zig-out/bin/bench
 	$? | tee $@
