@@ -1061,8 +1061,8 @@ pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime es
                 }
             },
             inline else => {
-                // It seems like the quota adds up and
-                // the default of 1k is hit here. 🤔
+                // It seems like the quota adds up in a function
+                // and the default of 1k was hit here. 🤔
                 @setEvalBranchQuota(1200);
                 percentEncode(&p, c);
             },
@@ -1115,6 +1115,147 @@ fn urnPrefixFromNamespaceCheck(comptime namespace: []const u8) []const u8 {
         @compileError("URN namespace identifier exceeds 32 characters");
 
     return if (lowern == 0 and uppern != 0) "URN:" ++ namespace ++ ":" else "urn:" ++ namespace ++ ":";
+}
+
+pub const QueryParam = struct {
+    key: []const u8,
+    value: ?[]const u8 = null,
+};
+
+/// AddParamsAndOrFragment returns a new URI with the query parameters and/or a
+/// fragment appended to the input URI. Caller owns the result.
+///
+/// When params is not empty, then a query component is added conform the
+/// defactor application/x-www-form-urlencoded standard. Note that spaces are
+/// replaced by a plus ("+") character. The equals ("=") character is omitted
+/// when a value is null.
+pub fn addParamsAndOrFragment(uri: []const u8, params: []const QueryParam, fragment: ?[]const u8, m: Allocator) error{OutOfMemory}![]u8 {
+    var size: usize = uri.len;
+
+    for (params) |param| {
+        size += 1; // "?" or "&"
+        size += paramSize(param.key);
+
+        if (param.value) |s| {
+            size += 1; // "="
+            size += paramSize(s);
+        }
+    }
+
+    if (fragment) |s| {
+        size += 1; // "#"
+
+        // match fragment from RFC 3986, subsection 3.5 with a size table
+        for (s) |c| size += switch (c) {
+            // unreserved
+            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
+            // sub-delims
+            inline '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
+            // pchar & fragment
+            inline ':', '@', '/', '?' => 1,
+            inline else => 3,
+        };
+    }
+
+    var b = try m.alloc(u8, size);
+    @memcpy(b.ptr, uri);
+
+    // write pointer
+    var p = b.ptr + uri.len;
+
+    for (params, 0..) |param, i| {
+        p[0] = if (i == 0) '?' else '&';
+        p += 1;
+
+        for (param.key) |c| switch (c) {
+            // query − "=&+"
+            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '\'', '(', ')', '*', ',', ';', ':', '@', '/', '?' => {
+                p[0] = c;
+                p += 1;
+            },
+            ' ' => {
+                p[0] = '+';
+                p += 1;
+            },
+            inline else => percentEncode(&p, c),
+        };
+
+        if (param.value) |s| {
+            p[0] = '=';
+            p += 1;
+
+            for (s) |c| switch (c) {
+                // query − "=&+"
+                inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '\'', '(', ')', '*', ',', ';', ':', '@', '/', '?' => {
+                    p[0] = c;
+                    p += 1;
+                },
+                ' ' => {
+                    p[0] = '+';
+                    p += 1;
+                },
+                inline else => {
+                    // It seems like the quota adds up in a function
+                    // and the default of 1k was hit here. 🤔
+                    @setEvalBranchQuota(2000);
+                    percentEncode(&p, c);
+                },
+            };
+        }
+    }
+
+    if (fragment) |s| {
+        p[0] = '#';
+        p += 1;
+
+        // match fragment from RFC 3986, subsection 3.5 with a jump table
+        for (s) |c| switch (c) {
+            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@', '/', '?' => {
+                p[0] = c;
+                p += 1;
+            },
+            inline else => {
+                percentEncode(&p, c);
+            },
+        };
+    }
+
+    return b;
+}
+
+test "Params and/or Fragment" {
+    // allocate URIs without free to get readable errors (on single line)
+    var buffer: [4096]u8 = undefined;
+    var fix = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fix.allocator();
+
+    try testing.expectEqualStrings("arbitrary", try addParamsAndOrFragment("arbitrary", &.{}, null, allocator));
+    try testing.expectEqualStrings("arbitrary?foo", try addParamsAndOrFragment("arbitrary", &.{.{ .key = "foo" }}, null, allocator));
+    try testing.expectEqualStrings("arbitrary?foo=bar", try addParamsAndOrFragment("arbitrary", &.{.{ .key = "foo", .value = "bar" }}, null, allocator));
+    try testing.expectEqualStrings("arbitrary?%26%3D=%3D%26&%E2%98%A0%EF%B8%8F", try addParamsAndOrFragment("arbitrary", &.{ .{ .key = "&=", .value = "=&" }, .{ .key = "☠️" } }, null, allocator));
+
+    try testing.expectEqualStrings("arbitrary#", try addParamsAndOrFragment("arbitrary", &.{}, "", allocator));
+    try testing.expectEqualStrings("arbitrary#toc", try addParamsAndOrFragment("arbitrary", &.{}, "toc", allocator));
+
+    // '+' = ' ' 🤡
+    try testing.expectEqualStrings("arbitrary?+&+=+#%20", try addParamsAndOrFragment("arbitrary", &.{ .{ .key = " " }, .{ .key = " ", .value = " " } }, " ", allocator));
+    try testing.expectEqualStrings("arbitrary?%2B=%2B&%2B#+", try addParamsAndOrFragment("arbitrary", &.{ .{ .key = "+", .value = "+" }, .{ .key = "+" } }, "+", allocator));
+}
+
+fn paramSize(s: []const u8) usize {
+    var n: usize = 0;
+    for (s) |c| n += switch (c) {
+        // unreserved
+        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
+        // sub-delims − "=&+"
+        '!', '$', '\'', '(', ')', '*', ',', ';' => 1,
+        // query
+        ':', '@', '/', '?' => 1,
+        // space is mapped to +
+        ' ' => 1,
+        inline else => 3,
+    };
+    return n;
 }
 
 fn withEscapeSet(p: *[*]u8, c: u8, comptime escape_set: []const u8) void {

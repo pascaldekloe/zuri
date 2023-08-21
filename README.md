@@ -82,6 +82,22 @@ fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []const 
 pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime escape_set: []const u8, m: Allocator) error{ OutOfMemory, NotUtf8 }![]u8
 ```
 
+```zig
+pub const QueryParam = struct {
+    key: []const u8,
+    value: ?[]const u8 = null,
+};
+
+/// AddParamsAndOrFragment returns a new URI with the query parameters and/or a
+/// fragment appended to the input URI. Caller owns the result.
+///
+/// When params is not empty, then a query component is added conform the
+/// defactor application/x-www-form-urlencoded standard. Note that spaces are
+/// replaced by a plus ("+") character. The equals ("=") character is omitted
+/// when a value is null.
+pub fn addParamsAndOrFragment(uri: []const u8, params: []const QueryParam, fragment: ?[]const u8, m: Allocator) error{OutOfMemory}![]u8
+```
+
 
 ## Benchmark
 
