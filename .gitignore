@@ -3,4 +3,4 @@ zig-cache/
 *.out
 
 fuzz-parse/
-fuzz-uri/
+fuzz-urn/

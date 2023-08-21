@@ -6,7 +6,7 @@ zuri.out: zuri.zig
 
 
 .PHONY: fmt
-fmt: build.zig zuri.zig fuzz-parse.zig fuzz-uri.zig bench.zig
+fmt: build.zig zuri.zig fuzz-parse.zig fuzz-urn.zig bench.zig
 	zig $@ $?
 
 doc: zuri.zig
@@ -14,22 +14,22 @@ doc: zuri.zig
 	zig build-lib -fno-emit-bin -femit-docs=$@ $?
 
 
-zig-out: build.zig zuri.zig fuzz-parse.zig fuzz-uri.zig bench.zig
+zig-out: build.zig zuri.zig fuzz-parse.zig fuzz-urn.zig bench.zig
 	zig build
 	touch zig-out
 
 
 zig-out/bin/fuzz-parse: zig-out
-zig-out/bin/fuzz-uri: zig-out
+zig-out/bin/fuzz-urn: zig-out
 
 .PHONY: fuzz-parse-console
 fuzz-parse-console: zig-out/bin/fuzz-parse
 	afl-fuzz -i sample -o fuzz-parse -O -- $?
 
-.PHONY: fuzz-uri-console
-fuzz-uri-console: zig-out/bin/fuzz-uri
+.PHONY: fuzz-urn-console
+fuzz-urn-console: zig-out/bin/fuzz-urn
 	# samples not applicable yet it does not matter
-	afl-fuzz -i sample -o fuzz-uri -O -- $?
+	afl-fuzz -i sample -o fuzz-urn -O -- $?
 
 
 zig-out/bin/bench: zig-out
