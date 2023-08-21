@@ -5,7 +5,7 @@ const testing = std.testing;
 const errorf = std.debug.print;
 const Allocator = std.mem.Allocator;
 
-/// Parts contains a lossless decomposition with all URL components as is. Use
+/// Parts contains a lossless decomposition with all URI components as is. Use
 /// parse to obtain a valid instance. The input string equals the concatenation
 /// of raw_scheme, raw_authority, raw_path, raw_query and raw_fragment.
 pub const Parts = struct {
@@ -21,7 +21,7 @@ pub const Parts = struct {
     /// The port component, if any, starts with ':'.
     raw_port: []const u8 = "",
 
-    /// The path compoment, if any, starts with '/' when the URL has an
+    /// The path compoment, if any, starts with '/' when the URI has an
     /// authority component.
     raw_path: []const u8 = "",
 
@@ -32,11 +32,11 @@ pub const Parts = struct {
     raw_fragment: []const u8 = "",
 
     /// Scheme returns the value normalized to lower-case.
-    pub fn scheme(p: *const Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn scheme(p: *const Parts, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
         if (p.raw_scheme.len < 2) return "";
         const s = p.raw_scheme[0 .. p.raw_scheme.len - 1];
 
-        var b = try allocator.alloc(u8, s.len);
+        var b = try m.alloc(u8, s.len);
         for (s, 0..) |c, i| {
             if (c < 'A' or c > 'Z') {
                 b[i] = c;
@@ -71,9 +71,9 @@ pub const Parts = struct {
 
     /// Userinfo returns the value with any and all of its percent-encodings
     /// resolved.
-    pub fn userinfo(p: *const Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn userinfo(p: *const Parts, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
         if (p.raw_userinfo.len < 2) return "";
-        return unescape(p.raw_userinfo[0 .. p.raw_userinfo.len - 1], allocator);
+        return unescape(p.raw_userinfo[0 .. p.raw_userinfo.len - 1], m);
     }
 
     /// HasUserinfo returns whether the userinfo component is present, and
@@ -86,9 +86,9 @@ pub const Parts = struct {
 
     /// Host returns the value with any and all of its percent-encodings
     /// resolved.
-    pub fn host(p: *const Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn host(p: *const Parts, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
         if (p.raw_host.len == 0) return "";
-        return unescape(p.raw_host, allocator);
+        return unescape(p.raw_host, m);
     }
 
     /// HasHost returns whether the authority component is present, and whether
@@ -107,9 +107,9 @@ pub const Parts = struct {
 
     /// Path returns the value with any and all of its percent-encodings
     /// resolved.
-    pub fn path(p: *const Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn path(p: *const Parts, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
         if (p.raw_path.len == 0) return "";
-        return unescape(p.raw_path, allocator);
+        return unescape(p.raw_path, m);
     }
 
     /// HasPath returns whether the value with any and all percent-encodings
@@ -119,9 +119,9 @@ pub const Parts = struct {
     }
 
     /// Query returns the value with any and all percent-encodings resolved.
-    pub fn query(p: *const Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn query(p: *const Parts, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
         if (p.raw_query.len < 2) return "";
-        return unescape(p.raw_query[1..], allocator);
+        return unescape(p.raw_query[1..], m);
     }
 
     /// HasQuery returns whether a query component is present, and whether its
@@ -132,9 +132,9 @@ pub const Parts = struct {
     }
 
     /// Fragment returns the value with any and all percent-encodings resolved.
-    pub fn fragment(p: *const Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn fragment(p: *const Parts, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
         if (p.raw_fragment.len < 2) return "";
-        return unescape(p.raw_fragment[1..], allocator);
+        return unescape(p.raw_fragment[1..], m);
     }
 
     /// HasFragment returns whether a fragment component is present, and whether
@@ -172,7 +172,7 @@ pub fn parse(s: []const u8) ParseError!Parts {
     // match scheme from RFC 3986, subsection 3.1 with a jump table
     for (s, 0..) |c, i| switch (c) {
         // ALPHA from RFC 2234, subsection 6.1
-        inline 'a'...'z', 'A'...'Z' => continue,
+        inline 'A'...'Z', 'a'...'z' => continue,
         // DIGIT from RFC 2234, subsection 6.1
         inline '0'...'9', '+', '-', '.' => if (i == 0) return ParseError.NoScheme,
         ':' => {
@@ -223,6 +223,12 @@ test "Examples" {
         "urn:example:a123,z456?=xyz",
         "urn:example:a123,z456#789",
         "urn:example:a123,z456/foo",
+
+        // “A URN Namespace for Public Identifiers” RFC 3151, section 3
+        "urn:publicid:ISO%2FIEC+10179%3A1996:DTD+DSSSL+Architecture:EN",
+        "urn:publicid:ISO+8879%3A1986:ENTITIES+Added+Latin+1:EN",
+        "urn:publicid:-:OASIS:DTD+DocBook+XML+V4.1.2:EN",
+        "urn:publicid:%2B:IDN+example.org:DTD+XML+Bookmarks+1.0:EN:XML",
 
         // “The "file" URI Scheme” RFC 8089, appendix B
         "file:///path/to/file",
@@ -411,7 +417,7 @@ fn sinceScheme(p: *Parts, s: []const u8) ParseError!void {
     // match authoritiry from RFC 3986, subsection 3.2 with a jump table
     while (i < s.len) switch (s[i]) {
         // unreserved
-        inline 'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~' => i += 1,
+        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => i += 1,
         // sub-delims
         inline '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => i += 1,
         // userinfo
@@ -545,7 +551,7 @@ fn asIpLiteral(p: *Parts, s: []const u8, start: usize) ParseError!void {
             // match ZoneID from “IPv6 Zone IDs in URIs” RFC 6874, section 2
             while (i < s.len) switch (s[i]) {
                 // unreserved
-                inline 'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~' => i += 1,
+                inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => i += 1,
                 // pct-encoded
                 '%' => {
                     try checkEscape(s, i);
@@ -577,7 +583,7 @@ fn asIpFuture(p: *Parts, s: []const u8, start: usize) ParseError!void {
     var i = start + 4;
     while (i < s.len) : (i += 1) switch (s[i]) {
         // unreserved
-        inline 'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~' => continue,
+        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => continue,
         // sub-delims
         inline '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => continue,
         ':' => continue,
@@ -682,7 +688,7 @@ fn pathContinue(p: *Parts, s: []const u8) ParseError!void {
     var i: usize = 0;
     while (i < s.len) switch (s[i]) {
         // unreserved
-        inline 'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~' => i += 1,
+        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => i += 1,
         // sub-delims
         inline '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => i += 1,
         // pchar, slash
@@ -715,7 +721,7 @@ fn queryContinue(p: *Parts, s: []const u8) ParseError!void {
     var i: usize = 1;
     while (i < s.len) switch (s[i]) {
         // unreserved
-        inline 'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~' => i += 1,
+        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => i += 1,
         // sub-delims
         inline '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => i += 1,
         // pchar & query
@@ -743,7 +749,7 @@ fn fragmentContinue(p: *Parts, s: []const u8) ParseError!void {
     var i: usize = 1;
     while (i < s.len) switch (s[i]) {
         // unreserved
-        inline 'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~' => i += 1,
+        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => i += 1,
         // sub-delims
         inline '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => i += 1,
         // pchar & fragment
@@ -829,9 +835,7 @@ fn equalString(raw: []const u8, match: []const u8) bool {
     return i >= raw.len; // match all
 }
 
-const hexTable = "0123456789ABCDEF";
-
-/// NewUrl returns a valid URI.
+/// NewUrl returns a valid URL/URI.
 pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []const u8, port: ?u16, path_segs: []const []const u8, m: Allocator) error{OutOfMemory}![]u8 {
     schemeCheck(scheme); // compile-time validation
 
@@ -857,7 +861,7 @@ pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []co
         for (u) |c| {
             size += switch (c) {
                 // unreserved ∪ sub-delims ∪ colon
-                'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => 1,
+                'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => 1,
                 else => 3,
             };
         }
@@ -865,7 +869,7 @@ pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []co
     for (hostname) |c| {
         size +%= switch (c) {
             // unreserved ∪ sub-delims
-            'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
+            'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
             else => 3,
         };
     }
@@ -874,15 +878,15 @@ pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []co
         for (seg) |c| {
             size +%= switch (c) {
                 // unreserved ∪ sub-delims ∪ pchar
-                'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => 1,
+                'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => 1,
                 else => 3,
             };
         }
     }
 
     // output + write pointer
-    var s = try m.alloc(u8, size);
-    var p = s.ptr;
+    var b = try m.alloc(u8, size);
+    var p = b.ptr;
     inline for (scheme) |c| {
         p[0] = c;
         p += 1;
@@ -896,15 +900,12 @@ pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []co
         for (u) |c| {
             switch (c) {
                 // unreserved ∪ sub-delims ∪ colon
-                'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => {
+                'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => {
                     p[0] = c;
                     p += 1;
                 },
                 else => {
-                    p[0] = '%';
-                    p[1] = hexTable[c >> 4];
-                    p[2] = hexTable[c & 15];
-                    p += 3;
+                    percentEncode(&p, c);
                 },
             }
         }
@@ -916,15 +917,12 @@ pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []co
     for (hostname) |c| {
         switch (c) {
             // unreserved ∪ sub-delims
-            'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => {
+            'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => {
                 p[0] = c;
                 p += 1;
             },
             else => {
-                p[0] = '%';
-                p[1] = hexTable[c >> 4];
-                p[2] = hexTable[c & 15];
-                p += 3;
+                percentEncode(&p, c);
             },
         }
     }
@@ -945,21 +943,18 @@ pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []co
         for (seg) |c| {
             switch (c) {
                 // unreserved ∪ sub-delims ∪ pchar
-                'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => {
+                'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => {
                     p[0] = c;
                     p += 1;
                 },
                 else => {
-                    p[0] = '%';
-                    p[1] = hexTable[c >> 4];
-                    p[2] = hexTable[c & 15];
-                    p += 3;
+                    percentEncode(&p, c);
                 },
             }
         }
     }
 
-    return s;
+    return b;
 }
 
 test "URL construction" {
@@ -983,15 +978,161 @@ test "URL construction" {
 }
 
 fn schemeCheck(comptime scheme: []const u8) void {
-    inline for (scheme) |c| {
+    if (scheme.len == 0) @compileError("empty URI scheme");
+
+    inline for (scheme, 0..) |c, i| switch (c) {
+        // “… should only produce lowercase scheme names for consistency.”
+        // — RFC 3986, subsection 3.1
+        'A'...'Z' => @compileError("URI scheme with upper-case (production prohibited)"),
+        'a'...'z' => continue,
+        '0'...'9', '+', '-', '.' => if (i == 0) @compileError("URI scheme needs alphabet letter first"),
+        else => @compileError("URI scheme with illegal character"),
+    };
+}
+
+pub const FormatError = error{
+    NotUtf8, // illegal byte sequence in input string
+};
+
+/// NewUrn returns a valid URN/URI. The specifics string must be valid UTF-8.
+/// An upper-case prefix ("URN:") is returned if and only namespace contains
+/// upper-case letters exclusively. The escape_set opts in percent-encoding for
+/// octets in the specifics string which would otherwise get included as is,
+/// namely 'A'—'Z', 'a'—'z', '0'—'9', '-', '.', '_', '~', '!', '$', '&', '\'',
+/// '(', ')', '*', '+', ',', ';', '=', ':', '@' and '/'.
+pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime escape_set: []const u8, m: Allocator) error{ OutOfMemory, NotUtf8 }![]u8 {
+    const prefix = comptime urnPrefixFromNamespaceCheck(namespace);
+
+    // “In particular, with regard to characters outside the ASCII range,
+    // URNs that appear in protocols or that are passed between systems MUST
+    // use only Unicode characters encoded in UTF-8 and further encoded as
+    // required by RFC 3986.”
+    // — RFC 8141, subsection 2.2
+    if (!std.unicode.utf8ValidateSlice(specifics)) return FormatError.NotUtf8;
+
+    // compile-time validation
+    inline for (escape_set) |c| switch (c) {
+        // unreserved
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => continue,
+        // sub-delims
+        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => continue,
+        // pchar ∪ NSS
+        ':', '@', '/' => continue,
+        else => @compileError("escape set with redundant escape characer"),
+    };
+
+    // allocate output
+    var size: usize = prefix.len;
+    // match NSS from RFC 3986, section 2 with a jump table
+    for (specifics, 0..) |c, i| size += switch (c) {
+        // unreserved ∪ sub-delims ∪ pchar ∪ NSS
+        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@', '/' => pass: {
+            if (c == '/' and i == 0) break :pass 3;
+            inline for (escape_set) |o|
+                if (o == c) break :pass 3;
+            break :pass 1;
+        },
+        inline else => 3,
+    };
+    var b = try m.alloc(u8, size);
+
+    // write pointer
+    inline for (prefix, 0..) |c, i| b[i] = c;
+    var p = b.ptr + prefix.len;
+
+    for (specifics, 0..) |c, i| spec_char: {
+        inline for (escape_set) |o| if (o == c) {
+            percentEncode(&p, o);
+            break :spec_char;
+        };
+
+        // match NSS from RFC 3986, section 2 with a jump table
         switch (c) {
-            'a'...'z', '0'...'9', '+', '-', '.' => {},
-            'A'...'Z' => {
-                @compileError("upper-case in scheme");
+            // unreserved ∪ sub-delims ∪ pchar ∪ NSS
+            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => {
+                withEscapeSet(&p, c, escape_set);
             },
-            else => {
-                @compileError("illegal character in scheme");
+            // NSS
+            '/' => {
+                if (i == 0) {
+                    percentEncode(&p, '/');
+                } else {
+                    withEscapeSet(&p, '/', escape_set);
+                }
+            },
+            inline else => {
+                // It seems like the quota adds up and
+                // the default of 1k is hit here. 🤔
+                @setEvalBranchQuota(1200);
+                percentEncode(&p, c);
             },
         }
     }
+
+    return b;
+}
+
+test "URN construction" {
+    // allocate URIs without free to get readable errors (on single line)
+    var buffer: [4096]u8 = undefined;
+    var fix = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fix.allocator();
+
+    try testing.expectEqualStrings("urn:example:", try newUrn("example", "", "", allocator));
+    try testing.expectEqualStrings("urn:Example:0", try newUrn("Example", "0", "", allocator));
+    try testing.expectEqualStrings("URN:EXAMPLE:z", try newUrn("EXAMPLE", "z", "", allocator));
+
+    try testing.expectEqualStrings("urn:did:%2Fpath/", try newUrn("did", "/path/", "", allocator));
+    try testing.expectEqualStrings("urn:did:%2Fpath%2F", try newUrn("did", "/path/", "/", allocator));
+
+    try testing.expectEqualStrings("urn:oid:1:3:6:1:4:1:28114", try newUrn("oid", "1:3:6:1:4:1:28114", ".", allocator));
+
+    // “A URN Namespace for Public Identifiers” RFC 3151, section 3
+    try testing.expectEqualStrings("urn:publicid:3%2B3=6", try newUrn("publicid", "3+3=6", "+:/;'", allocator));
+}
+
+fn urnPrefixFromNamespaceCheck(comptime namespace: []const u8) []const u8 {
+    // letter-casing counts
+    var uppern: usize = 0;
+    var lowern: usize = 0;
+
+    inline for (namespace, 0..) |c, i| switch (c) {
+        'A'...'Z' => uppern += 1,
+        'a'...'z' => lowern += 1,
+        '0'...'9' => continue,
+        '-' => {
+            if (i == 0)
+                @compileError("URN namespace identifier with hyphen prefix");
+            if (i == namespace.len - 1)
+                @compileError("URN namespace identifier with hyphen suffix");
+        },
+        else => @compileError("URN namespace identifier with illegal character"),
+    };
+
+    if (namespace.len < 2)
+        @compileError("URN namespace identifier with less than 2 characters");
+    if (namespace.len > 32)
+        @compileError("URN namespace identifier exceeds 32 characters");
+
+    return if (lowern == 0 and uppern != 0) "URN:" ++ namespace ++ ":" else "urn:" ++ namespace ++ ":";
+}
+
+fn withEscapeSet(p: *[*]u8, c: u8, comptime escape_set: []const u8) void {
+    inline for (escape_set) |o| if (o == c) {
+        percentEncode(p, o);
+        return;
+    };
+
+    p.*[0] = c;
+    p.* += 1;
+    return;
+}
+
+const hex_table = "0123456789ABCDEF";
+
+inline fn percentEncode(p: *[*]u8, o: u8) void {
+    p.*[0] = '%';
+    p.*[1] = hex_table[o >> 4];
+    p.*[2] = hex_table[o & 15];
+    p.* += 3;
 }

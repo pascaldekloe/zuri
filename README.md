@@ -2,8 +2,7 @@
 
 ## About
 
-… a library for strict URI/URL/URN/… handling, written in the Zig programming
-language.
+… a library for strict URI handling, written in the Zig programming language.
 
 No stable release yet. 🚧 I'm still learning the language.
 
@@ -20,14 +19,14 @@ Run `make doc` to see the full interface documentation at `doc/index.html'.
 
 ### Parse
 
-```
+```zig
 // Parse returns a mapping of s if and only if s is a valid URI.
 fn parse(s: []const u8) ParseError!Parts
 ```
 
-Parts contains a lossless decomposition with all URL components as is.
+Parts contains a lossless decomposition with all URI components as is.
 
-```
+```zig
 // The scheme component ends with ‘:’. It may contain upper-case letters.
 raw_scheme: []const u8,
 
@@ -43,7 +42,7 @@ raw_host: []const u8 = "",
 // The port component, if any, starts with ‘:’.
 raw_port: []const u8 = "",
 
-// The path compoment, if any, starts with ‘/’ when the URL has an authority component.
+// The path compoment, if any, starts with ‘/’ when the URI has an authority component.
 raw_path: []const u8 = "",
 
 // The query compoment, if any, starts with ‘?’.
@@ -55,19 +54,32 @@ raw_fragment: []const u8 = "",
 
 Components have dedicated methods to resolved and/or compare values, like:
 
-```
+```zig
 // Fragment returns the value with any and all percent-encodings resolved.
-fn fragment(p: *const Parts, allocator: std.mem.Allocator) error{OutOfMemory}![]u8
+fn fragment(p: *const Parts, m: std.mem.Allocator) error{OutOfMemory}![]u8
 
-// HasFragment returns whether a fragment component is present, and whether its value with any and all percent-encodings resolved equals match.
+// HasFragment returns whether a fragment component is present, and whether its
+// value with any and all percent-encodings resolved equals match.
 fn hasFragment(p: *const Parts, match: []const u8) bool
 ```
 
 ### Format
 
+URI construction goes by type as each format has its own constraints.
+
+```zig
+// NewUrl returns a valid URL/URI.
+fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []const u8, port: ?u16, path_segs: []const []const u8, m: Allocator) error{OutOfMemory}![]u8
 ```
-// NewURL returns a valid URI.
-fn newURL(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []const u8, port: ?u16, path_segs: []const []const u8, m: Allocator) error{OutOfMemory}![]u8
+
+```zig
+/// NewUrn returns a valid URN/URI. The specifics string must be valid UTF-8.
+/// An upper-case prefix ("URN:") is returned if and only namespace contains
+/// upper-case letters exclusively. The escape_set opts in percent-encoding for
+/// octets in the specifics string which would otherwise get included as is,
+/// namely 'A'—'Z', 'a'—'z', '0'—'9', '-', '.', '_', '~', '!', '$', '&', '\'',
+/// '(', ')', '*', '+', ',', ';', '=', ':', '@' and '/'.
+pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime escape_set: []const u8, m: Allocator) error{ OutOfMemory, NotUtf8 }![]u8
 ```
 
 
