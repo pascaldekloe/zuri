@@ -19,25 +19,21 @@ doc: zuri.zig
 
 zig-out: build.zig zuri.zig fuzz-parse.zig fuzz-urn.zig bench.zig
 	zig build
-	touch zig-out
-
-zig-out/bin/bench: zig-out
-zig-out/bin/fuzz-parse: zig-out
-zig-out/bin/fuzz-urn: zig-out
+	touch $@
 
 
 .PHONY: fuzz-parse-console
-fuzz-parse-console: zig-out/bin/fuzz-parse
-	afl-fuzz -i sample -o fuzz-parse -O -- $?
+fuzz-parse-console: zig-out
+	afl-fuzz -i sample -o fuzz-parse -O -- $?/bin/fuzz-parse
 
 .PHONY: fuzz-urn-console
-fuzz-urn-console: zig-out/bin/fuzz-urn
+fuzz-urn-console: zig-out
 	# samples not applicable yet it does not matter
-	afl-fuzz -i sample -o fuzz-urn -O -- $?
+	afl-fuzz -i sample -o fuzz-urn -O -- $?/bin/fuzz-urn
 
 
-bench.out: zig-out/bin/bench
-	$? | tee $@
+bench.out: zig-out
+	$?/bin/bench | tee $@
 
 
 .PHONY: dist
