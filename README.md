@@ -105,8 +105,12 @@ The following results were measured on an Apple M1. Run `make bench.out` to see
 on your machine.
 
 ```
-URL construction with host and 3-segment path took 152 on average, including free
-parse http://www.example.com/path/to%20a/long-name took 30 ns on average
+benchmark newUrl with host www.w3.org and path { 1999, 02, 22-rdf-syntax-ns }
+URL construction took 137 ns on average, including free
+benchmark newUrn with namespace specific part 99/02/22-rdf-syntax-ns#Description
+URN construction took 158 ns on average, including free
+benchmark parse with http://www.w3.org/1999/02/22-rdf-syntax-ns#Description
+parse took 40 ns on average
 ```
 
 
