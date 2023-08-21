@@ -98,7 +98,7 @@ fn verifyEscapeMatch(parts: zuri.Parts) void {
     allocator.free(h);
 
     var p = parts.path(allocator) catch "<path escape took too much memory>";
-    if (parts.hasPath(p) != (parts.raw_path.len != 0))
+    if (!parts.hasPath(p))
         fail("escaped path {s} is not matched by raw {s}", .{ p, parts.raw_path });
     allocator.free(p);
 
