@@ -442,7 +442,7 @@ fn sinceScheme(p: *Parts, s: []const u8) ParseError!void {
         '[' => {
             if (i != 2 + p.raw_userinfo.len)
                 return ParseError.IllegalCharacter;
-            return asIPLiteral(p, s, i);
+            return asIpLiteral(p, s, i);
         },
         '%' => { // pct-encoded
             try checkEscape(s, i);
@@ -475,7 +475,7 @@ fn authoritySet(p: *Parts, s: []const u8, colon_count: usize, last_colon: usize)
 }
 
 // Parses authority s since "[" at start.
-fn asIPLiteral(p: *Parts, s: []const u8, start: usize) ParseError!void {
+fn asIpLiteral(p: *Parts, s: []const u8, start: usize) ParseError!void {
     // “The use of "::" indicates one or more groups of 16 bits of zeros.
     // The "::" can only appear once in an address.  The "::" can also be
     // used to compress leading or trailing zeros in an address.”
@@ -485,7 +485,7 @@ fn asIPLiteral(p: *Parts, s: []const u8, start: usize) ParseError!void {
     var i = start + 1;
     if (i >= s.len) return ParseError.IllegalAddress;
     switch (s[i]) {
-        'v' => return asIPvFuture(p, s, start),
+        'v' => return asIpFuture(p, s, start),
         ':' => {
             if (i + 1 >= s.len or s[i + 1] != ':')
                 return ParseError.IllegalAddress;
@@ -516,7 +516,7 @@ fn asIPLiteral(p: *Parts, s: []const u8, start: usize) ParseError!void {
         ']' => {
             if (!zeroes_once and h16n != 8 or zeroes_once and h16n > 7)
                 return ParseError.IllegalAddress;
-            return IPLiteralEnd(p, s, i);
+            return ipLiteralEnd(p, s, i);
         },
 
         '.' => {
@@ -532,7 +532,7 @@ fn asIPLiteral(p: *Parts, s: []const u8, start: usize) ParseError!void {
             if (h16n < 2 or !zeroes_once and h16n != 6 + 1 or zeroes_once and h16n > 5 + 1)
                 return ParseError.IllegalAddress;
 
-            return IPv4inIPv6Continue(p, s, i - hexn);
+            return Ip4inIp6Continue(p, s, i - hexn);
         },
 
         // escaped percent ("%") character ("%25") separates zone identifier
@@ -553,7 +553,7 @@ fn asIPLiteral(p: *Parts, s: []const u8, start: usize) ParseError!void {
                 },
                 ']' => {
                     if (i <= zone_start) return ParseError.IllegalAddress;
-                    return IPLiteralEnd(p, s, i);
+                    return ipLiteralEnd(p, s, i);
                 },
                 inline else => return ParseError.IllegalAddress,
             };
@@ -565,8 +565,8 @@ fn asIPLiteral(p: *Parts, s: []const u8, start: usize) ParseError!void {
     return ParseError.IllegalAddress; // not closed with "]"
 }
 
-// AsIPvFuture parses authority s since "[v" at start.
-fn asIPvFuture(p: *Parts, s: []const u8, start: usize) ParseError!void {
+// AsIpFuture parses authority s since "[v" at start.
+fn asIpFuture(p: *Parts, s: []const u8, start: usize) ParseError!void {
     // match IPvFuture from RFC 3986, subsection 3.2.2
     if (start + 4 > s.len or s[start + 3] != '.') return ParseError.IllegalAddress;
     switch (s[start + 2]) {
@@ -583,14 +583,14 @@ fn asIPvFuture(p: *Parts, s: []const u8, start: usize) ParseError!void {
         ':' => continue,
         ']' => {
             if (i < start + 5) return ParseError.IllegalAddress;
-            return IPLiteralEnd(p, s, i);
+            return ipLiteralEnd(p, s, i);
         },
         inline else => return ParseError.IllegalAddress,
     };
     return ParseError.IllegalAddress; // not closed with "]"
 }
 
-fn IPv4inIPv6Continue(p: *Parts, s: []const u8, start: usize) ParseError!void {
+fn Ip4inIp6Continue(p: *Parts, s: []const u8, start: usize) ParseError!void {
     var i = start;
     var octn: usize = 1; // octet count (need 4)
     var decn: usize = 0; // decimal count (max 3)
@@ -614,15 +614,15 @@ fn IPv4inIPv6Continue(p: *Parts, s: []const u8, start: usize) ParseError!void {
             if (decn == 0 or octn != 4 or s[i - decn] == '0' or v == 0)
                 return ParseError.IllegalAddress;
 
-            return IPLiteralEnd(p, s, i);
+            return ipLiteralEnd(p, s, i);
         },
         inline else => return ParseError.IllegalAddress,
     };
     return ParseError.IllegalAddress; // not closed with "]"
 }
 
-// IPLiteralEnd continues from end "]" in authority s.
-fn IPLiteralEnd(p: *Parts, s: []const u8, end: usize) ParseError!void {
+// ipLiteralEnd continues from end "]" in authority s.
+fn ipLiteralEnd(p: *Parts, s: []const u8, end: usize) ParseError!void {
     var i = end + 1;
     p.raw_host = s[2 + p.raw_userinfo.len .. i];
     if (i >= s.len) {
@@ -831,8 +831,8 @@ fn equalString(raw: []const u8, match: []const u8) bool {
 
 const hexTable = "0123456789ABCDEF";
 
-/// NewURL returns a valid URI.
-pub fn newURL(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []const u8, port: ?u16, path_segs: []const []const u8, m: Allocator) error{OutOfMemory}![]u8 {
+/// NewUrl returns a valid URI.
+pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []const u8, port: ?u16, path_segs: []const []const u8, m: Allocator) error{OutOfMemory}![]u8 {
     schemeCheck(scheme); // compile-time validation
 
     // buffer decimal port number
@@ -969,17 +969,17 @@ test "URL construction" {
     const allocator = fix.allocator();
 
     // “Internationalized Resource Identifiers” RFC 3987, subsection 3.2.1
-    try testing.expectEqualStrings("http://xn--99zt52a.example.org/%E2%80%AE", try newURL("http", null, "xn--99zt52a.example.org", null, &.{"\u{202E}"}, allocator));
+    try testing.expectEqualStrings("http://xn--99zt52a.example.org/%E2%80%AE", try newUrl("http", null, "xn--99zt52a.example.org", null, &.{"\u{202E}"}, allocator));
 
     // “IMAP URL Scheme” RFC 2192, section 10
-    try testing.expectEqualStrings("imap://michael@minbari.org/users.*;type=list", try newURL("imap", "michael", "minbari.org", null, &.{"users.*;type=list"}, allocator));
-    try testing.expectEqualStrings("imap://psicorp.org/~peter/%E6%97%A5%E6%9C%AC%E8%AA%9E/%E5%8F%B0%E5%8C%97", try newURL("imap", null, "psicorp.org", null, &.{ "~peter", "日本語", "台北" }, allocator));
+    try testing.expectEqualStrings("imap://michael@minbari.org/users.*;type=list", try newUrl("imap", "michael", "minbari.org", null, &.{"users.*;type=list"}, allocator));
+    try testing.expectEqualStrings("imap://psicorp.org/~peter/%E6%97%A5%E6%9C%AC%E8%AA%9E/%E5%8F%B0%E5%8C%97", try newUrl("imap", null, "psicorp.org", null, &.{ "~peter", "日本語", "台北" }, allocator));
 
     // “POP URL Scheme” RFC 2384, section 7
-    try testing.expectEqualStrings("pop://rg;AUTH=+APOP@mail.eudora.com:8110", try newURL("pop", "rg;AUTH=+APOP", "mail.eudora.com", 8110, &.{}, allocator));
+    try testing.expectEqualStrings("pop://rg;AUTH=+APOP@mail.eudora.com:8110", try newUrl("pop", "rg;AUTH=+APOP", "mail.eudora.com", 8110, &.{}, allocator));
 
     // port zero is sometimes used in configruation to match any free port
-    try testing.expectEqualStrings("wss://syncd%40cluster2@ferep%3Atun0:0", try newURL("wss", "syncd@cluster2", "ferep:tun0", 0, &.{}, allocator));
+    try testing.expectEqualStrings("wss://syncd%40cluster2@ferep%3Atun0:0", try newUrl("wss", "syncd@cluster2", "ferep:tun0", 0, &.{}, allocator));
 }
 
 fn schemeCheck(comptime scheme: []const u8) void {

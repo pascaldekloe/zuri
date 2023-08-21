@@ -35,7 +35,7 @@ pub fn main() !void {
 
         var n: usize = bench_count;
         while (n != 0) : (n -= 1) {
-            var s = try zuri.newURL("imap", null, &host, null, &path, allocator);
+            var s = try zuri.newUrl("imap", null, &host, null, &path, allocator);
             mem.doNotOptimizeAway(s);
             allocator.free(s);
         }
