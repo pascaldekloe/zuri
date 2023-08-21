@@ -51,6 +51,13 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(parse_fuzzer);
 
+    const uri_fuzzer = b.addExecutable(.{
+        .name = "fuzz-uri",
+        .root_source_file = .{ .path = "fuzz-uri.zig" },
+        .optimize = std.builtin.OptimizeMode.ReleaseSafe,
+    });
+    b.installArtifact(uri_fuzzer);
+
     const bench = b.addExecutable(.{
         .name = "bench",
         .root_source_file = .{ .path = "bench.zig" },

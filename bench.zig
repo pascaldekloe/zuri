@@ -19,7 +19,7 @@ pub fn main() !void {
     var timer = try Timer.start();
     {
         var host: [17]u8 = undefined;
-        @memcpy(&host, "www.some-host.com");
+        @memcpy(host[0..], "www.some-host.com");
         rand.shuffle(u8, &host);
 
         var seg1 = try allocator.dupe(u8, "path");
@@ -41,7 +41,26 @@ pub fn main() !void {
         }
 
         const end = timer.read();
-        try report.print("URL construction with host and {d}-segment path took {d} on average, including free\n", .{ path.len, @divTrunc(end - start, bench_count) });
+        try report.print("URL construction with host and a {d}-segment path took {d} ns on average, including free\n", .{ path.len, @divTrunc(end - start, bench_count) });
+    }
+
+    {
+        var spec: [18]u8 = undefined;
+        @memcpy(spec[0..], "a:lot:of:sub parts");
+        rand.shuffle(u8, &spec);
+
+        timer.reset();
+        const start = timer.lap();
+
+        var n: usize = bench_count;
+        while (n != 0) : (n -= 1) {
+            var s = try zuri.newUrn("bench", &spec, "", allocator);
+            mem.doNotOptimizeAway(s);
+            allocator.free(s);
+        }
+
+        const end = timer.read();
+        try report.print("URN construction took {d} ns on average, including free\n", .{@divTrunc(end - start, bench_count)});
     }
 
     {
