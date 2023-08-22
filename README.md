@@ -73,13 +73,13 @@ fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []const 
 ```
 
 ```zig
-/// NewUrn returns a valid URN/URI. The specifics string must be valid UTF-8.
-/// An upper-case prefix ("URN:") is returned if and only namespace contains
+/// NewUrn returns either a valid URN/URI or the empty string when specifics is
+/// empty. An upper-case prefix ("URN:") is used if and only namespace contains
 /// upper-case letters exclusively. The escape_set opts in percent-encoding for
 /// octets in the specifics string which would otherwise get included as is,
-/// namely 'A'—'Z', 'a'—'z', '0'—'9', '-', '.', '_', '~', '!', '$', '&', '\'',
-/// '(', ')', '*', '+', ',', ';', '=', ':', '@' and '/'.
-pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime escape_set: []const u8, m: Allocator) error{ OutOfMemory, NotUtf8 }![]u8
+/// namely 'A'–'Z', 'a'–'z', '0'–'9', '(', ')', '+', ',', '-', '.', ':', '=',
+/// '@', ';', '$', '_', '!', '*', and '\''.
+pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime escape_set: []const u8, m: Allocator) error{OutOfMemory}![]u8
 ```
 
 ```zig
@@ -116,8 +116,12 @@ parse took 40 ns on average
 
 ## Standard Compliance
 
+ * “URI Generic Syntax” RFC 3986, previously RFC 2396
  * “Uniform Resource Locators (URL)” RFC 1738
- * “URI Generic Syntax” RFC 2396
- * “IPv6 Literal Addresses in URL's” RFC 2732
- * “URI Generic Syntax” RFC 3986
  * “IPv6 Zone IDs in URIs” RFC 6874
+ * “URN Syntax” RFC 2141
+
+“Uniform Resource Names (URNs)” RFC 8141 is omitted on purpose. The publication
+introduces an odd query syntax with many constraints and no explaination of its
+inted nor use. The subtile incompatibilites with both more restrictive rules as
+well as more permissive rules are simply not worthy.

@@ -990,80 +990,52 @@ fn schemeCheck(comptime scheme: []const u8) void {
     };
 }
 
-pub const FormatError = error{
-    NotUtf8, // illegal byte sequence in input string
-};
-
-/// NewUrn returns a valid URN/URI. The specifics string must be valid UTF-8.
-/// An upper-case prefix ("URN:") is returned if and only namespace contains
+/// NewUrn returns either a valid URN/URI or the empty string when specifics is
+/// empty. An upper-case prefix ("URN:") is used if and only namespace contains
 /// upper-case letters exclusively. The escape_set opts in percent-encoding for
 /// octets in the specifics string which would otherwise get included as is,
-/// namely 'A'—'Z', 'a'—'z', '0'—'9', '-', '.', '_', '~', '!', '$', '&', '\'',
-/// '(', ')', '*', '+', ',', ';', '=', ':', '@' and '/'.
-pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime escape_set: []const u8, m: Allocator) error{ OutOfMemory, NotUtf8 }![]u8 {
-    const prefix = comptime urnPrefixFromNamespaceCheck(namespace);
-
-    // “In particular, with regard to characters outside the ASCII range,
-    // URNs that appear in protocols or that are passed between systems MUST
-    // use only Unicode characters encoded in UTF-8 and further encoded as
-    // required by RFC 3986.”
-    // — RFC 8141, subsection 2.2
-    if (!std.unicode.utf8ValidateSlice(specifics)) return FormatError.NotUtf8;
-
+/// namely 'A'–'Z', 'a'–'z', '0'–'9', '(', ')', '+', ',', '-', '.', ':', '=',
+/// '@', ';', '$', '_', '!', '*', and '\''.
+pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime escape_set: []const u8, m: Allocator) error{OutOfMemory}![]u8 {
     // compile-time validation
+    const prefix = comptime urnPrefixFromNamespaceCheck(namespace);
+    // match NSS from RFC 2141, subsection 2.2
     inline for (escape_set) |c| switch (c) {
-        // unreserved
-        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => continue,
-        // sub-delims
-        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => continue,
-        // pchar ∪ NSS
-        ':', '@', '/' => continue,
-        else => @compileError("escape set with redundant escape characer"),
+        // <trans>
+        'A'...'Z', 'a'...'z', '0'...'9' => {},
+        // <other>
+        '(', ')', '+', ',', '-', '.', ':', '=', '@', ';', '$', '_', '!', '*', '\'' => {},
+        else => @compileError("URN escape set with redundant escape characer"),
     };
 
-    // allocate output
+    if (specifics.len == 0) return "";
+
     var size: usize = prefix.len;
-    // match NSS from RFC 3986, section 2 with a jump table
-    for (specifics, 0..) |c, i| size += switch (c) {
-        // unreserved ∪ sub-delims ∪ pchar ∪ NSS
-        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@', '/' => pass: {
-            if (c == '/' and i == 0) break :pass 3;
-            inline for (escape_set) |o|
-                if (o == c) break :pass 3;
-            break :pass 1;
-        },
+    for (specifics) |c| size += inline for (escape_set) |o| {
+        if (o == c) break 3;
+    } else switch (c) {
+        inline 'A'...'Z', 'a'...'z', '0'...'9', '(', ')', '+', ',', '-', '.', ':', '=', '@', ';', '$', '_', '!', '*', '\'' => 1,
         inline else => 3,
     };
-    var b = try m.alloc(u8, size);
 
-    // write pointer
+    // output string + write pointer
+    var b = try m.alloc(u8, size);
     inline for (prefix, 0..) |c, i| b[i] = c;
     var p = b.ptr + prefix.len;
 
-    for (specifics, 0..) |c, i| spec_char: {
-        inline for (escape_set) |o| if (o == c) {
-            percentEncode(&p, o);
-            break :spec_char;
-        };
-
-        // match NSS from RFC 3986, section 2 with a jump table
-        switch (c) {
-            // unreserved ∪ sub-delims ∪ pchar ∪ NSS
-            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => {
-                withEscapeSet(&p, c, escape_set);
-            },
-            // NSS
-            '/' => {
-                if (i == 0) {
-                    percentEncode(&p, '/');
-                } else {
-                    withEscapeSet(&p, '/', escape_set);
-                }
+    // match NSS from RFC 2141, subsection 2.2 with a jump table
+    for (specifics) |c| {
+        inline for (escape_set) |o| {
+            if (o == c) {
+                percentEncode(&p, o);
+                break;
+            }
+        } else switch (c) {
+            inline 'A'...'Z', 'a'...'z', '0'...'9', '(', ')', '+', ',', '-', '.', ':', '=', '@', ';', '$', '_', '!', '*', '\'' => {
+                p[0] = c;
+                p += 1;
             },
             inline else => {
-                // It seems like the quota adds up in a function
-                // and the default of 1k was hit here. 🤔
-                @setEvalBranchQuota(1200);
                 percentEncode(&p, c);
             },
         }
@@ -1078,17 +1050,13 @@ test "URN construction" {
     var fix = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fix.allocator();
 
-    try testing.expectEqualStrings("urn:example:", try newUrn("example", "", "", allocator));
-    try testing.expectEqualStrings("urn:Example:0", try newUrn("Example", "0", "", allocator));
-    try testing.expectEqualStrings("URN:EXAMPLE:z", try newUrn("EXAMPLE", "z", "", allocator));
+    try testing.expectEqualStrings("urn:Example:0", try newUrn("Example", "0", "Ol", allocator));
+    try testing.expectEqualStrings("URN:EXAMPLE:z", try newUrn("EXAMPLE", "z", "Ol", allocator));
 
-    try testing.expectEqualStrings("urn:did:%2Fpath/", try newUrn("did", "/path/", "", allocator));
-    try testing.expectEqualStrings("urn:did:%2Fpath%2F", try newUrn("did", "/path/", "/", allocator));
-
-    try testing.expectEqualStrings("urn:oid:1:3:6:1:4:1:28114", try newUrn("oid", "1:3:6:1:4:1:28114", ".", allocator));
+    try testing.expectEqualStrings("urn:oid:1:3:6:1:4:1:28114", try newUrn("oid", "1:3:6:1:4:1:28114", "", allocator));
 
     // “A URN Namespace for Public Identifiers” RFC 3151, section 3
-    try testing.expectEqualStrings("urn:publicid:3%2B3=6", try newUrn("publicid", "3+3=6", "+:/;'", allocator));
+    try testing.expectEqualStrings("urn:publicid:3%2B3=6", try newUrn("publicid", "3+3=6", "+:;'", allocator));
 }
 
 fn urnPrefixFromNamespaceCheck(comptime namespace: []const u8) []const u8 {
@@ -1103,8 +1071,6 @@ fn urnPrefixFromNamespaceCheck(comptime namespace: []const u8) []const u8 {
         '-' => {
             if (i == 0)
                 @compileError("URN namespace identifier with hyphen prefix");
-            if (i == namespace.len - 1)
-                @compileError("URN namespace identifier with hyphen suffix");
         },
         else => @compileError("URN namespace identifier with illegal character"),
     };
@@ -1256,17 +1222,6 @@ fn paramSize(s: []const u8) usize {
         inline else => 3,
     };
     return n;
-}
-
-fn withEscapeSet(p: *[*]u8, c: u8, comptime escape_set: []const u8) void {
-    inline for (escape_set) |o| if (o == c) {
-        percentEncode(p, o);
-        return;
-    };
-
-    p.*[0] = c;
-    p.* += 1;
-    return;
 }
 
 const hex_table = "0123456789ABCDEF";

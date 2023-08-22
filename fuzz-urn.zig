@@ -16,9 +16,8 @@ pub fn main() !void {
 
     var buf: [size_max]u8 = undefined;
     var fix = std.heap.FixedBufferAllocator.init(&buf);
-    const s = zuri.newUrn("test", fuzz_in, "Ol", fix.allocator()) catch |err| {
-        if (err == std.mem.Allocator.Error.OutOfMemory and fuzz_in.len < buf.len / 3)
-            fail("error {} for {d}-byte input with {d}-byte buffer", .{ err, fuzz_in.len, buf.len });
+    const s = zuri.newUrn("test", fuzz_in, "Ol", fix.allocator()) catch {
+        fail("ran out of memory for {d}-byte input with {d}-byte buffer", .{ fuzz_in.len, buf.len });
         return;
     };
 
