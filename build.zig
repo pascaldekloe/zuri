@@ -44,6 +44,13 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&run_main_tests.step);
 
+    const params_fuzzer = b.addExecutable(.{
+        .name = "fuzz-params",
+        .root_source_file = .{ .path = "fuzz-params.zig" },
+        .optimize = std.builtin.OptimizeMode.ReleaseSafe,
+    });
+    b.installArtifact(params_fuzzer);
+
     const parse_fuzzer = b.addExecutable(.{
         .name = "fuzz-parse",
         .root_source_file = .{ .path = "fuzz-parse.zig" },

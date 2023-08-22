@@ -9,7 +9,7 @@ zuri.out: zuri.zig
 
 
 .PHONY: fmt
-fmt: build.zig zuri.zig fuzz-parse.zig fuzz-urn.zig bench.zig
+fmt: build.zig zuri.zig fuzz-params.zig fuzz-parse.zig fuzz-urn.zig bench.zig
 	zig $@ $?
 
 doc: zuri.zig
@@ -17,10 +17,14 @@ doc: zuri.zig
 	zig build-lib -fno-emit-bin -femit-docs=$@ $?
 
 
-zig-out: build.zig zuri.zig fuzz-parse.zig fuzz-urn.zig bench.zig
+zig-out: build.zig zuri.zig fuzz-params.zig fuzz-parse.zig fuzz-urn.zig bench.zig
 	zig build
-	touch $@
 
+
+.PHONY: fuzz-params-console
+fuzz-params-console: zig-out
+	# samples not applicable yet it does not matter
+	afl-fuzz -i sample -o fuzz-params -O -g 0 -G 64 -- $?/bin/fuzz-params
 
 .PHONY: fuzz-parse-console
 fuzz-parse-console: zig-out
