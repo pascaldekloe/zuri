@@ -52,7 +52,7 @@ raw_query: []const u8 = "",
 raw_fragment: []const u8 = "",
 ```
 
-Components have dedicated methods to resolved and/or compare values, like:
+Components have dedicated methods to resolve and/or compare values, like:
 
 ```zig
 // Fragment returns the value with any and all percent-encodings resolved.
@@ -92,7 +92,7 @@ pub const QueryParam = struct {
 /// fragment appended to the input URI. Caller owns the result.
 ///
 /// When params is not empty, then a query component is added conform the
-/// defactor application/x-www-form-urlencoded standard. Note that spaces are
+/// defacto application/x-www-form-urlencoded standard. Note that spaces are
 /// replaced by a plus ("+") character. The equals ("=") character is omitted
 /// when a value is null.
 pub fn addParamsAndOrFragment(uri: []const u8, params: []const QueryParam, fragment: ?[]const u8, m: Allocator) error{OutOfMemory}![]u8
