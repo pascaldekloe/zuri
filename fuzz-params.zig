@@ -2,14 +2,14 @@ const std = @import("std");
 const zuri = @import("./zuri.zig");
 
 pub fn main() !void {
-    // fetch fuzzing input
+    // fetch fuzz input
     const stdin = std.io.getStdIn();
     // sync size with afl-fuzz(1) -G argument
     var readb: [64]u8 = undefined;
     const readn = try stdin.readAll(&readb);
     var in: []const u8 = readb[0..readn];
 
-    var buf: [1024]u8 = undefined;
+    var buf: [256]u8 = undefined;
     var fix = std.heap.FixedBufferAllocator.init(&buf);
     const allocator = fix.allocator();
 
@@ -17,8 +17,8 @@ pub fn main() !void {
     var params: []zuri.QueryParam = &.{};
     var fragment: ?[]const u8 = null;
     if (in.len != 0) {
-        var param_count = in[0] & 3;
-        var with_fragment = in[0] & 0xf0 == 0;
+        const param_count = in[0] & 3;
+        const with_fragment = in[0] & 0xf0 == 0;
         in = in[1..];
 
         params = try allocator.alloc(zuri.QueryParam, param_count);
@@ -30,12 +30,12 @@ pub fn main() !void {
     }
 
     const got = zuri.addParamsAndOrFragment("http://example.com/foo", params, fragment, allocator) catch {
-        std.log.err("ran out of memory on {d} bytes of input with {d} bytes of space", .{ readn, buf.len });
+        std.log.err("out of memory on {d} bytes of input with {d} bytes of space", .{ readn, buf.len });
         std.os.exit(137);
     };
 
     _ = zuri.parse(got) catch |err| {
-        std.log.err("produced malformed URI {s}: {}", .{ got, err });
+        std.log.err("invalid URI result {s}: {}", .{ got, err });
         std.os.exit(1);
     };
 }

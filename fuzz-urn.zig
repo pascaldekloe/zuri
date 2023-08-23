@@ -3,35 +3,27 @@ const os = std.os;
 
 const zuri = @import("./zuri.zig");
 
-const size_max = 1024; // upper boundary in bytes
-
 pub fn main() !void {
-    // fetch fuzzing input up to size_max
-    var readb: [size_max]u8 = undefined;
+    // fetch fuzz input
     const stdin = std.io.getStdIn();
+    // sync size with afl-fuzz(1) -G argument
+    var readb: [64]u8 = undefined;
     const readn = try stdin.readAll(&readb);
-    const fuzz_in = readb[0..readn];
+    const fuzz_in: []const u8 = readb[0..readn];
 
-    defer if (fuzzFail) os.exit(1);
-
-    var buf: [size_max]u8 = undefined;
+    var buf: [256]u8 = undefined;
     var fix = std.heap.FixedBufferAllocator.init(&buf);
-    const s = zuri.newUrn("test", fuzz_in, "Ol", fix.allocator()) catch {
-        fail("ran out of memory for {d}-byte input with {d}-byte buffer", .{ fuzz_in.len, buf.len });
-        return;
+    const urn = zuri.newUrn("test", fuzz_in, "Ol", fix.allocator()) catch {
+        std.log.err("out of memory on {d} bytes of input with {d} bytes of space", .{ fuzz_in.len, buf.len });
+        std.os.exit(137);
     };
 
-    const p = zuri.parse(s) catch |err| {
-        fail("produced invalid URI {s}: {}", .{ s, err });
-        return;
+    const parts = zuri.parse(urn) catch |err| {
+        std.log.err("invalid URN result {s}: {}", .{ urn, err });
+        std.os.exit(1);
     };
-    if (!p.hasPath(fuzz_in))
-        fail("fuzz input does not match path in {s}", .{s});
-}
-
-var fuzzFail = false;
-
-fn fail(comptime format: []const u8, args: anytype) void {
-    fuzzFail = true;
-    std.log.err(format, args);
+    if (!parts.hasPath(fuzz_in)) {
+        std.log.err("fuzz input does not match path of {s}", .{urn});
+        std.os.exit(1);
+    }
 }

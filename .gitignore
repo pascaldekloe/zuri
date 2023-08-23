@@ -2,5 +2,6 @@ zig-cache/
 
 *.out
 
+fuzz-params/
 fuzz-parse/
 fuzz-urn/

@@ -28,12 +28,12 @@ fuzz-params-console: zig-out
 
 .PHONY: fuzz-parse-console
 fuzz-parse-console: zig-out
-	afl-fuzz -i sample -o fuzz-parse -O -- $?/bin/fuzz-parse
+	afl-fuzz -i sample -o fuzz-parse -O -g 0 -G 64 -- $?/bin/fuzz-parse
 
 .PHONY: fuzz-urn-console
 fuzz-urn-console: zig-out
 	# samples not applicable yet it does not matter
-	afl-fuzz -i sample -o fuzz-urn -O -- $?/bin/fuzz-urn
+	afl-fuzz -i sample -o fuzz-urn -O -g 0 -G 64 -- $?/bin/fuzz-urn
 
 
 bench.out: zig-out

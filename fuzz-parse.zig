@@ -5,14 +5,13 @@ const mem = std.mem;
 
 const zuri = @import("./zuri.zig");
 
-const size_max = 1024; // upper boundary in bytes
-
 pub fn main() !void {
-    // fetch fuzzing input up to size_max
-    var readb: [size_max]u8 = undefined;
+    // fetch fuzz input
     const stdin = std.io.getStdIn();
+    // sync size with afl-fuzz(1) -G argument
+    var readb: [64]u8 = undefined;
     const readn = try stdin.readAll(&readb);
-    const fuzz_in = readb[0..readn];
+    const fuzz_in: []const u8 = readb[0..readn];
 
     const parts = zuri.parse(fuzz_in) catch return;
 
@@ -30,7 +29,7 @@ fn fail(comptime format: []const u8, args: anytype) void {
     std.log.err(format, args);
 }
 
-var buf: [size_max]u8 = undefined;
+var buf: [1024]u8 = undefined;
 
 // VerifyConstraints checks the claims in field comments from Parts.
 fn verifyConstraints(parts: zuri.Parts, fuzz_in: []const u8) void {
