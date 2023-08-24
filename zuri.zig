@@ -1,9 +1,14 @@
 //! URI/IRI reading
 
 const std = @import("std");
-const testing = std.testing;
-const errorf = std.debug.print;
 const Allocator = std.mem.Allocator;
+
+const expect = std.testing.expect;
+const expectFmt = std.testing.expectFmt;
+const expectEqual = std.testing.expectEqual;
+const expectEqualStrings = std.testing.expectEqualStrings;
+const expectStringEndsWith = std.testing.expectStringEndsWith;
+const expectStringStartsWith = std.testing.expectStringStartsWith;
 
 /// Parts contains a lossless decomposition with all URI components as is. Use
 /// parse to obtain a valid instance. The input string equals the concatenation
@@ -273,130 +278,136 @@ test "Examples" {
 
     for (samples) |s| {
         var p = parse(s) catch |err| {
-            errorf("\ngot error {} for {s}\n", .{ err, s });
+            std.debug.print("got error {} for {s}\n", .{ err, s });
             return err;
         };
 
         // ensure lossless mapping
-        try testing.expectFmt(s, "{s}{s}{s}{s}{s}", .{ p.raw_scheme, p.raw_authority, p.raw_path, p.raw_query, p.raw_fragment });
+        try expectFmt(s, "{s}{s}{s}{s}{s}", .{ p.raw_scheme, p.raw_authority, p.raw_path, p.raw_query, p.raw_fragment });
 
         // verify constraints from the field comments
-        try testing.expectStringEndsWith(p.raw_scheme, ":");
+        try expectStringEndsWith(p.raw_scheme, ":");
         if (p.raw_authority.len != 0) {
-            try testing.expectFmt(p.raw_authority, "//{s}{s}{s}", .{ p.raw_userinfo, p.raw_host, p.raw_port });
-            if (p.raw_userinfo.len != 0) try testing.expectStringEndsWith(p.raw_userinfo, "@");
-            if (p.raw_port.len != 0) try testing.expectStringStartsWith(p.raw_port, ":");
+            try expectFmt(p.raw_authority, "//{s}{s}{s}", .{ p.raw_userinfo, p.raw_host, p.raw_port });
+            if (p.raw_userinfo.len != 0) try expectStringEndsWith(p.raw_userinfo, "@");
+            if (p.raw_port.len != 0) try expectStringStartsWith(p.raw_port, ":");
         } else {
             const empty: []const u8 = "";
-            try testing.expectEqual(empty, p.raw_userinfo);
-            try testing.expectEqual(empty, p.raw_host);
-            try testing.expectEqual(empty, p.raw_port);
+            try expectEqual(empty, p.raw_userinfo);
+            try expectEqual(empty, p.raw_host);
+            try expectEqual(empty, p.raw_port);
         }
-        if (p.raw_path.len != 0 and p.raw_authority.len != 0) try testing.expectStringStartsWith(p.raw_path, "/");
-        if (p.raw_query.len != 0) try testing.expectStringStartsWith(p.raw_query, "?");
-        if (p.raw_fragment.len != 0) try testing.expectStringStartsWith(p.raw_fragment, "#");
+        if (p.raw_path.len != 0 and p.raw_authority.len != 0) try expectStringStartsWith(p.raw_path, "/");
+        if (p.raw_query.len != 0) try expectStringStartsWith(p.raw_query, "?");
+        if (p.raw_fragment.len != 0) try expectStringStartsWith(p.raw_fragment, "#");
     }
 }
 
 test "Upper-Case URN" {
+    var m = std.testing.allocator;
+
     // sample from “Using ISBNs as URNs” RFC 3187, subsection 3.2
     var p = try parse("URN:ISBN:0-395-36341-1");
 
-    try testing.expect(p.hasScheme("urn"));
+    try expect(p.hasScheme("urn"));
 
-    var scheme = try p.scheme(testing.allocator);
-    defer testing.allocator.free(scheme);
-    try testing.expectEqualStrings("urn", scheme);
+    var scheme = try p.scheme(m);
+    defer m.free(scheme);
+    try expectEqualStrings("urn", scheme);
 
-    try testing.expect(p.hasPath("ISBN:0-395-36341-1"));
-    try testing.expect(!p.hasPath("isbn:0-395-36341-1"));
+    try expect(p.hasPath("ISBN:0-395-36341-1"));
+    try expect(!p.hasPath("isbn:0-395-36341-1"));
 
-    var path = try p.path(testing.allocator);
-    defer testing.allocator.free(path);
-    try testing.expectEqualStrings("ISBN:0-395-36341-1", path);
+    var path = try p.path(m);
+    defer m.free(path);
+    try expectEqualStrings("ISBN:0-395-36341-1", path);
 }
 
 test "Tricky" {
+    var m = std.testing.allocator;
+
     var p = try parse("bang://AD2%5cBill%40live.com@?C:%5cProgram+Files%5C*.EXE");
 
-    var userinfo = try p.userinfo(testing.allocator);
-    defer testing.allocator.free(userinfo);
-    try testing.expectEqualStrings("AD2\\Bill@live.com", userinfo);
+    var userinfo = try p.userinfo(m);
+    defer m.free(userinfo);
+    try expectEqualStrings("AD2\\Bill@live.com", userinfo);
 
-    var query = try p.query(testing.allocator);
-    defer testing.allocator.free(query);
-    try testing.expectEqualStrings("C:\\Program+Files\\*.EXE", query);
+    var query = try p.query(m);
+    defer m.free(query);
+    try expectEqualStrings("C:\\Program+Files\\*.EXE", query);
 }
 
 test "Bloat" {
     var p = try parse("x-odbc://admin:fe:main@[0::192.168.57.2]:5432/cms?SELECT%20*%20FROM%20users;#80%E2%80%93160");
 
-    try testing.expectEqualStrings("x-odbc:", p.raw_scheme);
-    try testing.expectEqualStrings("//admin:fe:main@[0::192.168.57.2]:5432", p.raw_authority);
-    try testing.expectEqualStrings("admin:fe:main@", p.raw_userinfo);
-    try testing.expectEqualStrings("[0::192.168.57.2]", p.raw_host);
-    try testing.expectEqualStrings(":5432", p.raw_port);
-    try testing.expectEqualStrings("/cms", p.raw_path);
-    try testing.expectEqualStrings("?SELECT%20*%20FROM%20users;", p.raw_query);
-    try testing.expectEqualStrings("#80%E2%80%93160", p.raw_fragment);
+    try expectEqualStrings("x-odbc:", p.raw_scheme);
+    try expectEqualStrings("//admin:fe:main@[0::192.168.57.2]:5432", p.raw_authority);
+    try expectEqualStrings("admin:fe:main@", p.raw_userinfo);
+    try expectEqualStrings("[0::192.168.57.2]", p.raw_host);
+    try expectEqualStrings(":5432", p.raw_port);
+    try expectEqualStrings("/cms", p.raw_path);
+    try expectEqualStrings("?SELECT%20*%20FROM%20users;", p.raw_query);
+    try expectEqualStrings("#80%E2%80%93160", p.raw_fragment);
 
-    try testing.expect(p.hasScheme("x-odbc"));
-    try testing.expect(p.hasUserinfo("admin:fe:main"));
-    try testing.expect(!p.hasUserinfo("admin:fe:main@"));
-    try testing.expect(p.hasHost("[0::192.168.57.2]"));
-    try testing.expect(!p.hasHost("0::192.168.57.2"));
-    try testing.expect(!p.hasHost("192.168.57.2"));
-    try testing.expectEqual(@as(u16, 5432), p.port());
-    try testing.expect(p.hasPath("/cms"));
-    try testing.expect(!p.hasPath("cms"));
-    try testing.expect(p.hasFragment("80–160"));
-    try testing.expect(!p.hasFragment("80%E2%80%93160"));
-    try testing.expect(!p.hasFragment("#80%E2%80%93160"));
+    try expect(p.hasScheme("x-odbc"));
+    try expect(p.hasUserinfo("admin:fe:main"));
+    try expect(!p.hasUserinfo("admin:fe:main@"));
+    try expect(p.hasHost("[0::192.168.57.2]"));
+    try expect(!p.hasHost("0::192.168.57.2"));
+    try expect(!p.hasHost("192.168.57.2"));
+    try expectEqual(@as(u16, 5432), p.port());
+    try expect(p.hasPath("/cms"));
+    try expect(!p.hasPath("cms"));
+    try expect(p.hasFragment("80–160"));
+    try expect(!p.hasFragment("80%E2%80%93160"));
+    try expect(!p.hasFragment("#80%E2%80%93160"));
 
-    var query = try p.query(testing.allocator);
-    defer testing.allocator.free(query);
-    try testing.expectEqualStrings("SELECT * FROM users;", query);
+    var m = std.testing.allocator;
 
-    var fragment = try p.fragment(testing.allocator);
-    defer testing.allocator.free(fragment);
-    try testing.expectEqualStrings("80–160", fragment);
+    var query = try p.query(m);
+    defer m.free(query);
+    try expectEqualStrings("SELECT * FROM users;", query);
+
+    var fragment = try p.fragment(m);
+    defer m.free(fragment);
+    try expectEqualStrings("80–160", fragment);
 }
 
-test "absent" {
+test "Absent" {
     var p = try parse("X11:");
 
-    try testing.expect(p.hasScheme("x11"));
-    try testing.expect(!p.hasScheme("ssh"));
-    try testing.expect(!p.hasUserinfo(""));
-    try testing.expect(!p.hasHost(""));
-    try testing.expect(p.port() == 0);
-    try testing.expect(p.hasPath(""));
-    try testing.expect(!p.hasFragment(""));
+    try expect(p.hasScheme("x11"));
+    try expect(!p.hasScheme("ssh"));
+    try expect(!p.hasUserinfo(""));
+    try expect(!p.hasHost(""));
+    try expect(p.port() == 0);
+    try expect(p.hasPath(""));
+    try expect(!p.hasFragment(""));
 
-    try testing.expectEqualStrings("", try p.path(testing.failing_allocator));
-    try testing.expectEqualStrings("", try p.query(testing.failing_allocator));
-    try testing.expectEqualStrings("", try p.fragment(testing.failing_allocator));
+    try expectEqualStrings("", try p.path(std.testing.failing_allocator));
+    try expectEqualStrings("", try p.query(std.testing.failing_allocator));
+    try expectEqualStrings("", try p.fragment(std.testing.failing_allocator));
 }
 
-test "empty" {
+test "Empty" {
     var p = try parse("x-://@:?#");
 
-    try testing.expect(p.hasScheme("x-"));
-    try testing.expect(!p.hasScheme("x"));
-    try testing.expect(p.hasUserinfo(""));
-    try testing.expect(!p.hasUserinfo("@"));
-    try testing.expect(p.hasHost(""));
-    try testing.expect(!p.hasHost("//"));
-    try testing.expect(p.port() == 0);
-    try testing.expect(p.hasPath(""));
-    try testing.expect(!p.hasPath("/"));
-    try testing.expect(p.hasFragment(""));
-    try testing.expect(!p.hasFragment("#"));
+    try expect(p.hasScheme("x-"));
+    try expect(!p.hasScheme("x"));
+    try expect(p.hasUserinfo(""));
+    try expect(!p.hasUserinfo("@"));
+    try expect(p.hasHost(""));
+    try expect(!p.hasHost("//"));
+    try expect(p.port() == 0);
+    try expect(p.hasPath(""));
+    try expect(!p.hasPath("/"));
+    try expect(p.hasFragment(""));
+    try expect(!p.hasFragment("#"));
 
-    try testing.expectEqualStrings("", try p.userinfo(testing.failing_allocator));
-    try testing.expectEqualStrings("", try p.path(testing.failing_allocator));
-    try testing.expectEqualStrings("", try p.query(testing.failing_allocator));
-    try testing.expectEqualStrings("", try p.fragment(testing.failing_allocator));
+    try expectEqualStrings("", try p.userinfo(std.testing.failing_allocator));
+    try expectEqualStrings("", try p.path(std.testing.failing_allocator));
+    try expectEqualStrings("", try p.query(std.testing.failing_allocator));
+    try expectEqualStrings("", try p.fragment(std.testing.failing_allocator));
 }
 
 // Parse all components after raw_scheme, which can be none.
@@ -856,33 +867,15 @@ pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []co
     // count output bytes
     var size = scheme.len + 3;
     if (port) |_| size += 1 + port_serial.len - port_offset;
-    if (userinfo) |u| {
-        size += 1; // "@"
-        for (u) |c| {
-            size += switch (c) {
-                // unreserved ∪ sub-delims ∪ colon
-                'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => 1,
-                else => 3,
-            };
-        }
-    }
+    if (userinfo) |u| size += userinfoSize(u);
     for (hostname) |c| {
-        size +%= switch (c) {
+        size += switch (c) {
             // unreserved ∪ sub-delims
-            'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
-            else => 3,
+            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
+            inline else => 3,
         };
     }
-    for (path_segs) |seg| {
-        size += 1; // "/"
-        for (seg) |c| {
-            size +%= switch (c) {
-                // unreserved ∪ sub-delims ∪ pchar
-                'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => 1,
-                else => 3,
-            };
-        }
-    }
+    size += pathSegsSize(path_segs);
 
     // output + write pointer
     var b = try m.alloc(u8, size);
@@ -896,37 +889,17 @@ pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []co
         p += 1;
     }
 
-    if (userinfo) |u| {
-        for (u) |c| {
-            switch (c) {
-                // unreserved ∪ sub-delims ∪ colon
-                'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => {
-                    p[0] = c;
-                    p += 1;
-                },
-                else => {
-                    percentEncode(&p, c);
-                },
-            }
-        }
-
-        p[0] = '@';
-        p += 1;
-    }
-
+    if (userinfo) |u| writeUserinfo(&p, u);
     for (hostname) |c| {
         switch (c) {
             // unreserved ∪ sub-delims
-            'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => {
+            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => {
                 p[0] = c;
                 p += 1;
             },
-            else => {
-                percentEncode(&p, c);
-            },
+            else => percentEncode(&p, c),
         }
     }
-
     if (port) |_| {
         p[0] = ':';
         p += 1;
@@ -935,46 +908,231 @@ pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []co
             p += 1;
         }
     }
-
-    for (path_segs) |seg| {
-        p[0] = '/';
-        p += 1;
-
-        for (seg) |c| {
-            switch (c) {
-                // unreserved ∪ sub-delims ∪ pchar
-                'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => {
-                    p[0] = c;
-                    p += 1;
-                },
-                else => {
-                    percentEncode(&p, c);
-                },
-            }
-        }
-    }
-
+    writePathSegs(&p, path_segs);
     return b;
 }
 
-test "URL construction" {
+test "URL Construction" {
     // allocate URIs without free to get readable errors (on single line)
     var buffer: [1024]u8 = undefined;
     var fix = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fix.allocator();
 
     // “Internationalized Resource Identifiers” RFC 3987, subsection 3.2.1
-    try testing.expectEqualStrings("http://xn--99zt52a.example.org/%E2%80%AE", try newUrl("http", null, "xn--99zt52a.example.org", null, &.{"\u{202E}"}, allocator));
+    try expectEqualStrings("http://xn--99zt52a.example.org/%E2%80%AE", try newUrl("http", null, "xn--99zt52a.example.org", null, &.{"\u{202E}"}, allocator));
 
     // “IMAP URL Scheme” RFC 2192, section 10
-    try testing.expectEqualStrings("imap://michael@minbari.org/users.*;type=list", try newUrl("imap", "michael", "minbari.org", null, &.{"users.*;type=list"}, allocator));
-    try testing.expectEqualStrings("imap://psicorp.org/~peter/%E6%97%A5%E6%9C%AC%E8%AA%9E/%E5%8F%B0%E5%8C%97", try newUrl("imap", null, "psicorp.org", null, &.{ "~peter", "日本語", "台北" }, allocator));
+    try expectEqualStrings("imap://michael@minbari.org/users.*;type=list", try newUrl("imap", "michael", "minbari.org", null, &.{"users.*;type=list"}, allocator));
+    try expectEqualStrings("imap://psicorp.org/~peter/%E6%97%A5%E6%9C%AC%E8%AA%9E/%E5%8F%B0%E5%8C%97", try newUrl("imap", null, "psicorp.org", null, &.{ "~peter", "日本語", "台北" }, allocator));
 
     // “POP URL Scheme” RFC 2384, section 7
-    try testing.expectEqualStrings("pop://rg;AUTH=+APOP@mail.eudora.com:8110", try newUrl("pop", "rg;AUTH=+APOP", "mail.eudora.com", 8110, &.{}, allocator));
+    try expectEqualStrings("pop://rg;AUTH=+APOP@mail.eudora.com:8110", try newUrl("pop", "rg;AUTH=+APOP", "mail.eudora.com", 8110, &.{}, allocator));
 
     // port zero is sometimes used in configruation to match any free port
-    try testing.expectEqualStrings("wss://syncd%40cluster2@ferep%3Atun0:0", try newUrl("wss", "syncd@cluster2", "ferep:tun0", 0, &.{}, allocator));
+    try expectEqualStrings("wss://syncd%40cluster2@ferep%3Atun0:0", try newUrl("wss", "syncd@cluster2", "ferep:tun0", 0, &.{}, allocator));
+}
+
+pub fn newIp6Url(comptime scheme: []const u8, userinfo: ?[]const u8, addr: [16]u8, port: ?u16, path_segs: []const []const u8, m: Allocator) error{OutOfMemory}![]u8 {
+    schemeCheck(scheme); // compile-time validation
+
+    const host_port_max = "[0000:0000:0000:0000:0000:0000:0000:0000]:65535".len;
+    var buf: [host_port_max]u8 = undefined;
+    var host_port = formatIp6AndPortIn(&buf, addr, port);
+
+    // count output bytes
+    var size = scheme.len + 3;
+    if (userinfo) |u| size += userinfoSize(u);
+    size += host_port.len;
+    size += pathSegsSize(path_segs);
+
+    // output + write pointer
+    var b = try m.alloc(u8, size);
+    var p = b.ptr;
+    inline for (scheme) |c| {
+        p[0] = c;
+        p += 1;
+    }
+    inline for ("://") |c| {
+        p[0] = c;
+        p += 1;
+    }
+    if (userinfo) |u| writeUserinfo(&p, u);
+    @memcpy(p, host_port);
+    p += host_port.len;
+    writePathSegs(&p, path_segs);
+    return b;
+}
+
+test "IPv6 URL Construction" {
+    // allocate URIs without free to get readable errors (on single line)
+    var buffer: [1024]u8 = undefined;
+    var fix = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fix.allocator();
+
+    try expectEqualStrings("ftp://[::0]/%F0%9F%91%BE", try newIp6Url("ftp", null, .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, null, &.{"👾"}, allocator));
+    try expectEqualStrings("ssh://[::2]/%F0%9F%91%BB", try newIp6Url("ssh", null, .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2 }, null, &.{"👻"}, allocator));
+    try expectEqualStrings("echo://[102:3400::]:7", try newIp6Url("echo", null, .{ 1, 2, 0x34, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, 7, &.{}, allocator));
+    try expectEqualStrings("telnet://:guest@[1001::F607:809]", try newIp6Url("telnet", ":guest", .{ 16, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xf6, 7, 8, 9 }, null, &.{}, allocator));
+}
+
+/// FormatIp6AndPortIn encodes the address with an optional port number
+/// using buf.
+fn formatIp6AndPortIn(buf: *[47]u8, addr: [16]u8, port: ?u16) []u8 {
+    // write backwards into buf
+    var offset = buf.len;
+
+    // optional port number
+    if (port) |portv| {
+        var v: usize = @intCast(portv);
+        while (true) {
+            offset -= 1;
+            var decimal: u8 = @intCast(@mod(v, 10));
+            buf[offset] = '0' + decimal;
+            v /= 10;
+            if (v == 0) break;
+        }
+
+        offset -= 1;
+        buf[offset] = ':';
+    }
+
+    // IPv6 address
+    offset -= 1;
+    buf[offset] = ']';
+
+    var zero_pair_count: usize = 0;
+    var zero_pair_offset: usize = 0;
+    ip6ZeroRange(addr, &zero_pair_count, &zero_pair_offset);
+    if (zero_pair_count == 0) {
+        // print all 8 octet-pairs
+        var i = addr.len;
+        while (true) {
+            i -= 2;
+            writeOctetPairBackwards(buf, &offset, addr[i], addr[i + 1]);
+            if (i == 0) break;
+            offset -= 1;
+            buf[offset] = ':';
+        }
+    } else if (zero_pair_offset == 0) { // gap left
+        // "::0" for all-zero case
+        if (zero_pair_count > 7)
+            zero_pair_count = 7;
+
+        var pairn = 8 - zero_pair_count;
+        var i = addr.len;
+        for (0..pairn) |_| {
+            i -= 2;
+            writeOctetPairBackwards(buf, &offset, addr[i], addr[i + 1]);
+            offset -= 1;
+            buf[offset] = ':';
+        }
+        offset -= 1;
+        buf[offset] = ':';
+    } else { // gap right or middle
+        if (zero_pair_offset + zero_pair_count > 7) { // gap right
+            offset -= 1;
+            buf[offset] = ':';
+        } else { // gap middle
+            var pairn = 8 - (zero_pair_offset + zero_pair_count);
+            var i = addr.len;
+            for (0..pairn) |_| {
+                i -= 2;
+                writeOctetPairBackwards(buf, &offset, addr[i], addr[i + 1]);
+                offset -= 1;
+                buf[offset] = ':';
+            }
+        }
+
+        // left remainder
+        var i = zero_pair_offset << 1;
+        while (i != 0) {
+            i -= 2;
+            offset -= 1;
+            buf[offset] = ':';
+            writeOctetPairBackwards(buf, &offset, addr[i], addr[i + 1]);
+        }
+    }
+
+    offset -= 1;
+    buf[offset] = '[';
+    return buf[offset..];
+}
+
+/// Ip6ZeroRange finds the longest sequence of octet-pairs with a zero value.
+inline fn ip6ZeroRange(addr: [16]u8, countp: *usize, offsetp: *usize) void {
+    var pair_count: usize = 0;
+    var pair_offset: usize = 0;
+
+    for (0..8) |pair_index| {
+        if (addr[pair_index << 1] == 0 and addr[(pair_index << 1) + 1] == 0) {
+            if (pair_count == 0) pair_offset = pair_index; // start sequence
+            pair_count += 1;
+        } else if (pair_count != 0) { // terminate sequence
+            if (pair_count > countp.*) {
+                countp.* = pair_count;
+                offsetp.* = pair_offset;
+            }
+            pair_count = 0;
+        }
+    }
+    if (pair_count > countp.*) {
+        countp.* = pair_count;
+        offsetp.* = pair_offset;
+    }
+}
+
+test "IPv6 Zero Pairs" {
+    const Golden = struct {
+        addr: [16]u8,
+        count: usize,
+        offset: usize,
+    };
+    const tests = [_]Golden{
+        // no zeroes
+        .{ .addr = .{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 }, .count = 0, .offset = 0 },
+        // all zeroes
+        .{ .addr = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, .count = 8, .offset = 0 },
+        // leading zeroes
+        .{ .addr = .{ 0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }, .count = 2, .offset = 0 },
+        .{ .addr = .{ 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }, .count = 2, .offset = 0 },
+        // tailing zeroes
+        .{ .addr = .{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 128, 0, 0, 0, 0 }, .count = 2, .offset = 6 },
+        .{ .addr = .{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 128, 0, 0, 0, 0, 0 }, .count = 2, .offset = 6 },
+
+        // bigger sequence first
+        .{ .addr = .{ 1, 0, 0, 0, 0, 0, 0, 0, 128, 0, 0, 0, 0, 0, 0, 128 }, .count = 3, .offset = 1 },
+        // bigger sequence second
+        .{ .addr = .{ 128, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 128 }, .count = 3, .offset = 4 },
+    };
+
+    for (tests) |golden| {
+        var count: usize = 0;
+        var offset: usize = 0;
+        ip6ZeroRange(golden.addr, &count, &offset);
+        if (golden.count != count or golden.offset != offset) {
+            std.debug.print("got {d}@{d} for address {d}, want {d}@{d}", .{ count, offset, golden.addr, golden.count, golden.offset });
+            try expect(false);
+        }
+    }
+}
+
+/// WriteOctetPairBackwards encodes 16 bits in hexadecimal with any and all
+/// leading zeroes omitted. Dst is written backwards, starting at pos minus one.
+inline fn writeOctetPairBackwards(dst: *[47]u8, pos: *usize, o1: u8, o2: u8) void {
+    pos.* -= 1;
+    dst[pos.*] = hex_table[o2 & 0xf];
+    if (o1 != 0 or o2 & 0xf0 != 0) {
+        pos.* -= 1;
+        dst[pos.*] = hex_table[o2 >> 4];
+    }
+    if (o1 != 0) {
+        pos.* -= 1;
+        dst[pos.*] = hex_table[o1 & 0xf];
+        if (o1 & 0xf0 != 0) {
+            pos.* -= 1;
+            dst[pos.*] = hex_table[o1 >> 4];
+        }
+    }
 }
 
 fn schemeCheck(comptime scheme: []const u8) void {
@@ -988,6 +1146,66 @@ fn schemeCheck(comptime scheme: []const u8) void {
         '0'...'9', '+', '-', '.' => if (i == 0) @compileError("URI scheme needs alphabet letter first"),
         else => @compileError("URI scheme with illegal character"),
     };
+}
+
+inline fn userinfoSize(s: []const u8) usize {
+    var size: usize = 1; // "@"
+    for (s) |c| {
+        size += switch (c) {
+            // unreserved ∪ sub-delims ∪ colon
+            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => 1,
+            inline else => 3,
+        };
+    }
+    return size;
+}
+
+fn writeUserinfo(p: *[*]u8, s: []const u8) void {
+    for (s) |c| switch (c) {
+        // unreserved ∪ sub-delims ∪ colon
+        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => {
+            p.*[0] = c;
+            p.* += 1;
+        },
+        inline else => {
+            percentEncode(p, c);
+        },
+    };
+
+    p.*[0] = '@';
+    p.* += 1;
+}
+
+fn pathSegsSize(segs: []const []const u8) usize {
+    var size: usize = 0;
+    for (segs) |seg| {
+        size += 1; // "/"
+        for (seg) |c| {
+            size += switch (c) {
+                // unreserved ∪ sub-delims ∪ pchar
+                inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => 1,
+                else => 3,
+            };
+        }
+    }
+    return size;
+}
+
+fn writePathSegs(p: *[*]u8, segs: []const []const u8) void {
+    for (segs) |seg| {
+        p.*[0] = '/';
+        p.* += 1;
+        for (seg) |c| {
+            switch (c) {
+                // unreserved ∪ sub-delims ∪ pchar
+                inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => {
+                    p.*[0] = c;
+                    p.* += 1;
+                },
+                inline else => percentEncode(p, c),
+            }
+        }
+    }
 }
 
 /// NewUrn returns either a valid URN/URI or the empty string when specifics is
@@ -1044,19 +1262,19 @@ pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime es
     return b;
 }
 
-test "URN construction" {
+test "URN Construction" {
     // allocate URIs without free to get readable errors (on single line)
     var buffer: [4096]u8 = undefined;
     var fix = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fix.allocator();
 
-    try testing.expectEqualStrings("urn:Example:0", try newUrn("Example", "0", "Ol", allocator));
-    try testing.expectEqualStrings("URN:EXAMPLE:z", try newUrn("EXAMPLE", "z", "Ol", allocator));
+    try expectEqualStrings("urn:Example:0", try newUrn("Example", "0", "Ol", allocator));
+    try expectEqualStrings("URN:EXAMPLE:z", try newUrn("EXAMPLE", "z", "Ol", allocator));
 
-    try testing.expectEqualStrings("urn:oid:1:3:6:1:4:1:28114", try newUrn("oid", "1:3:6:1:4:1:28114", "", allocator));
+    try expectEqualStrings("urn:oid:1:3:6:1:4:1:28114", try newUrn("oid", "1:3:6:1:4:1:28114", "", allocator));
 
     // “A URN Namespace for Public Identifiers” RFC 3151, section 3
-    try testing.expectEqualStrings("urn:publicid:3%2B3=6", try newUrn("publicid", "3+3=6", "+:;'", allocator));
+    try expectEqualStrings("urn:publicid:3%2B3=6", try newUrn("publicid", "3+3=6", "+:;'", allocator));
 }
 
 fn urnPrefixFromNamespaceCheck(comptime namespace: []const u8) []const u8 {
@@ -1195,17 +1413,17 @@ test "Params and/or Fragment" {
     var fix = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fix.allocator();
 
-    try testing.expectEqualStrings("arbitrary", try addParamsAndOrFragment("arbitrary", &.{}, null, allocator));
-    try testing.expectEqualStrings("arbitrary?foo", try addParamsAndOrFragment("arbitrary", &.{.{ .key = "foo" }}, null, allocator));
-    try testing.expectEqualStrings("arbitrary?foo=bar", try addParamsAndOrFragment("arbitrary", &.{.{ .key = "foo", .value = "bar" }}, null, allocator));
-    try testing.expectEqualStrings("arbitrary?%26%3D=%3D%26&%E2%98%A0%EF%B8%8F", try addParamsAndOrFragment("arbitrary", &.{ .{ .key = "&=", .value = "=&" }, .{ .key = "☠️" } }, null, allocator));
+    try expectEqualStrings("arbitrary", try addParamsAndOrFragment("arbitrary", &.{}, null, allocator));
+    try expectEqualStrings("arbitrary?foo", try addParamsAndOrFragment("arbitrary", &.{.{ .key = "foo" }}, null, allocator));
+    try expectEqualStrings("arbitrary?foo=bar", try addParamsAndOrFragment("arbitrary", &.{.{ .key = "foo", .value = "bar" }}, null, allocator));
+    try expectEqualStrings("arbitrary?%26%3D=%3D%26&%E2%98%A0%EF%B8%8F", try addParamsAndOrFragment("arbitrary", &.{ .{ .key = "&=", .value = "=&" }, .{ .key = "☠️" } }, null, allocator));
 
-    try testing.expectEqualStrings("arbitrary#", try addParamsAndOrFragment("arbitrary", &.{}, "", allocator));
-    try testing.expectEqualStrings("arbitrary#toc", try addParamsAndOrFragment("arbitrary", &.{}, "toc", allocator));
+    try expectEqualStrings("arbitrary#", try addParamsAndOrFragment("arbitrary", &.{}, "", allocator));
+    try expectEqualStrings("arbitrary#toc", try addParamsAndOrFragment("arbitrary", &.{}, "toc", allocator));
 
     // '+' = ' ' 🤡
-    try testing.expectEqualStrings("arbitrary?+&+=+#%20", try addParamsAndOrFragment("arbitrary", &.{ .{ .key = " " }, .{ .key = " ", .value = " " } }, " ", allocator));
-    try testing.expectEqualStrings("arbitrary?%2B=%2B&%2B#+", try addParamsAndOrFragment("arbitrary", &.{ .{ .key = "+", .value = "+" }, .{ .key = "+" } }, "+", allocator));
+    try expectEqualStrings("arbitrary?+&+=+#%20", try addParamsAndOrFragment("arbitrary", &.{ .{ .key = " " }, .{ .key = " ", .value = " " } }, " ", allocator));
+    try expectEqualStrings("arbitrary?%2B=%2B&%2B#+", try addParamsAndOrFragment("arbitrary", &.{ .{ .key = "+", .value = "+" }, .{ .key = "+" } }, "+", allocator));
 }
 
 fn paramSize(s: []const u8) usize {

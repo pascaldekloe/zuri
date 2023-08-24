@@ -54,6 +54,25 @@ pub fn main() !void {
 
     timer.reset();
     {
+        var bench_addr: [16]u8 = undefined;
+        @memcpy(&bench_addr, bench_url[0..16]);
+        try report.print("benchmark newIp6Url with address {d} and path {s}\n", .{ bench_addr, bench_segs });
+
+        const start = timer.lap();
+
+        var n: usize = bench_count;
+        while (n != 0) : (n -= 1) {
+            var s = try zuri.newIp6Url("http", null, bench_addr, null, &bench_segs, allocator);
+            mem.doNotOptimizeAway(s);
+            allocator.free(s);
+        }
+
+        const end = timer.read();
+        try report.print("IPv6 URL construction took {d} ns on average, including free\n", .{@divTrunc(end - start, bench_count)});
+    }
+
+    timer.reset();
+    {
         // arbitrary content with one escape (of "#")
         var spec = bench_url[20..];
         try report.print("benchmark newUrn with namespace specific part {s}\n", .{spec});
