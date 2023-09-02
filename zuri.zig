@@ -846,6 +846,18 @@ fn equalString(raw: []const u8, match: []const u8) bool {
     return i >= raw.len; // match all
 }
 
+var host_char_sizes: [256]u2 = buildHostCharSizes();
+
+fn buildHostCharSizes() [256]u2 {
+    var sizes: [256]u2 = undefined;
+    for (0..256) |c| sizes[c] = switch (c) {
+        // unreserved ∪ sub-delims
+        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
+        else => 3,
+    };
+    return sizes;
+}
+
 /// NewUrl returns a valid URL/URI.
 pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []const u8, port: ?u16, path_segs: []const []const u8, m: Allocator) error{OutOfMemory}![]u8 {
     schemeCheck(scheme); // compile-time validation
@@ -870,13 +882,7 @@ pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []co
     var size = scheme.len + 3;
     if (port) |_| size += 1 + port_decimals.len - port_offset;
     if (userinfo) |u| size += userinfoSize(u);
-    for (hostname) |c| {
-        size += switch (c) {
-            // unreserved ∪ sub-delims
-            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
-            inline else => 3,
-        };
-    }
+    for (hostname) |c| size += host_char_sizes[c];
     size += pathSegsSize(path_segs);
 
     // output + write pointer
@@ -893,13 +899,11 @@ pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []co
 
     if (userinfo) |u| writeUserinfo(&p, u);
     for (hostname) |c| {
-        switch (c) {
-            // unreserved ∪ sub-delims
-            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => {
-                p[0] = c;
-                p += 1;
-            },
-            else => percentEncode(&p, c),
+        if (host_char_sizes[c] > 1) {
+            percentEncode(&p, c);
+        } else {
+            p[0] = c;
+            p += 1;
         }
     }
     if (port) |_| {
@@ -1060,7 +1064,7 @@ fn formatIp6AndPortIn(buf: *[47]u8, addr: [16]u8, port: ?u16) []u8 {
 }
 
 /// Ip6ZeroRange finds the longest sequence of octet-pairs with a zero value.
-inline fn ip6ZeroRange(addr: [16]u8, countp: *usize, offsetp: *usize) void {
+fn ip6ZeroRange(addr: [16]u8, countp: *usize, offsetp: *usize) void {
     var pair_count: usize = 0;
     var pair_offset: usize = 0;
 
@@ -1149,45 +1153,55 @@ fn schemeCheck(comptime scheme: []const u8) void {
     };
 }
 
-inline fn userinfoSize(s: []const u8) usize {
+var userinfo_char_sizes: [256]u2 = buildUserinfoCharSizes();
+
+fn buildUserinfoCharSizes() [256]u2 {
+    var sizes: [256]u2 = undefined;
+    for (0..256) |c| sizes[c] = switch (c) {
+        // unreserved ∪ sub-delims ∪ colon
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => 1,
+        else => 3,
+    };
+    return sizes;
+}
+
+fn userinfoSize(s: []const u8) usize {
     var size: usize = 1; // "@"
-    for (s) |c| {
-        size += switch (c) {
-            // unreserved ∪ sub-delims ∪ colon
-            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => @as(u2, 1),
-            inline else => @as(u2, 3),
-        };
-    }
+    for (s) |c| size += userinfo_char_sizes[c];
     return size;
 }
 
 fn writeUserinfo(p: *[*]u8, s: []const u8) void {
-    for (s) |c| switch (c) {
-        // unreserved ∪ sub-delims ∪ colon
-        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => {
+    for (s) |c| {
+        if (userinfo_char_sizes[c] > 1) {
+            percentEncode(p, c);
+        } else {
             p.*[0] = c;
             p.* += 1;
-        },
-        else => {
-            percentEncode(p, c);
-        },
-    };
+        }
+    }
 
     p.*[0] = '@';
     p.* += 1;
+}
+
+var path_char_sizes: [256]u2 = buildPathCharSizes();
+
+fn buildPathCharSizes() [256]u2 {
+    var sizes: [256]u2 = undefined;
+    for (0..256) |c| sizes[c] = switch (c) {
+        // unreserved ∪ sub-delims ∪ pchar
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => 1,
+        else => 3,
+    };
+    return sizes;
 }
 
 fn pathSegsSize(segs: []const []const u8) usize {
     var size: usize = 0;
     for (segs) |seg| {
         size += 1; // "/"
-        for (seg) |c| {
-            size += switch (c) {
-                // unreserved ∪ sub-delims ∪ pchar
-                inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => @as(u2, 1),
-                inline else => @as(u2, 3),
-            };
-        }
+        for (seg) |c| size += path_char_sizes[c];
     }
     return size;
 }
@@ -1197,16 +1211,26 @@ fn writePathSegs(p: *[*]u8, segs: []const []const u8) void {
         p.*[0] = '/';
         p.* += 1;
         for (seg) |c| {
-            switch (c) {
-                // unreserved ∪ sub-delims ∪ pchar
-                'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => {
-                    p.*[0] = c;
-                    p.* += 1;
-                },
-                else => percentEncode(p, c),
+            if (path_char_sizes[c] > 1) {
+                percentEncode(p, c);
+            } else {
+                p.*[0] = c;
+                p.* += 1;
             }
         }
     }
+}
+
+var urn_char_sizes: [256]u2 = buildUrnCharSizes();
+
+fn buildUrnCharSizes() [256]u2 {
+    var sizes: [256]u2 = undefined;
+    for (0..256) |c| sizes[c] = switch (c) {
+        // unreserved ∪ sub-delims ∪ pchar
+        'A'...'Z', 'a'...'z', '0'...'9', '(', ')', '+', ',', '-', '.', ':', '=', '@', ';', '$', '_', '!', '*', '\'' => 1,
+        else => 3,
+    };
+    return sizes;
 }
 
 /// NewUrn returns either a valid URN/URI or the empty string when specifics is
@@ -1230,12 +1254,11 @@ pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime es
     if (specifics.len == 0) return "";
 
     var size: usize = prefix.len;
-    for (specifics) |c| size += inline for (escape_set) |o| {
-        if (o == c) break 3;
-    } else switch (c) {
-        inline 'A'...'Z', 'a'...'z', '0'...'9', '(', ')', '+', ',', '-', '.', ':', '=', '@', ';', '$', '_', '!', '*', '\'' => 1,
-        inline else => 3,
-    };
+    for (specifics) |c| {
+        size += inline for (escape_set) |o| {
+            if (o == c) break 3;
+        } else urn_char_sizes[c];
+    }
 
     // output string + write pointer
     var b = try m.alloc(u8, size);
@@ -1249,14 +1272,13 @@ pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime es
                 percentEncode(&p, o);
                 break;
             }
-        } else switch (c) {
-            inline 'A'...'Z', 'a'...'z', '0'...'9', '(', ')', '+', ',', '-', '.', ':', '=', '@', ';', '$', '_', '!', '*', '\'' => {
+        } else {
+            if (urn_char_sizes[c] > 1) {
+                percentEncode(&p, c);
+            } else {
                 p[0] = c;
                 p += 1;
-            },
-            inline else => {
-                percentEncode(&p, c);
-            },
+            }
         }
     }
 
@@ -1316,95 +1338,24 @@ pub const QueryParam = struct {
 /// when a value is null.
 pub fn addParamsAndOrFragment(uri: []const u8, params: []const QueryParam, fragment: ?[]const u8, m: Allocator) error{OutOfMemory}![]u8 {
     var size: usize = uri.len;
-
-    for (params) |param| {
-        size += 1; // "?" or "&"
-        size += paramSize(param.key);
-
-        if (param.value) |s| {
-            size += 1; // "="
-            size += paramSize(s);
-        }
-    }
-
-    if (fragment) |s| {
-        size += 1; // "#"
-
-        // match fragment from RFC 3986, subsection 3.5 with a size table
-        for (s) |c| size += switch (c) {
-            // unreserved
-            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => @as(u2, 1),
-            // sub-delims
-            inline '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => @as(u2, 1),
-            // pchar & fragment
-            inline ':', '@', '/', '?' => @as(u2, 1),
-            inline else => @as(u2, 3),
-        };
-    }
-
+    for (params) |param| size += paramSize(param);
+    if (fragment) |s| size += fragmentSize(s);
     var b = try m.alloc(u8, size);
     @memcpy(b.ptr, uri);
 
     // write pointer
     var p = b.ptr + uri.len;
-
     for (params, 0..) |param, i| {
         p[0] = if (i == 0) '?' else '&';
         p += 1;
-
-        for (param.key) |c| switch (c) {
-            // query − "=&+"
-            'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '\'', '(', ')', '*', ',', ';', ':', '@', '/', '?' => {
-                p[0] = c;
-                p += 1;
-            },
-            ' ' => {
-                p[0] = '+';
-                p += 1;
-            },
-            else => percentEncode(&p, c),
-        };
-
+        writeParamValue(&p, param.key);
         if (param.value) |s| {
             p[0] = '=';
             p += 1;
-
-            for (s) |c| switch (c) {
-                // query − "=&+"
-                'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '\'', '(', ')', '*', ',', ';', ':', '@', '/', '?' => {
-                    p[0] = c;
-                    p += 1;
-                },
-                ' ' => {
-                    p[0] = '+';
-                    p += 1;
-                },
-                else => {
-                    // It seems like the quota adds up in a function
-                    // and the default of 1k was hit here. 🤔
-                    @setEvalBranchQuota(2000);
-                    percentEncode(&p, c);
-                },
-            };
+            writeParamValue(&p, s);
         }
     }
-
-    if (fragment) |s| {
-        p[0] = '#';
-        p += 1;
-
-        // match fragment from RFC 3986, subsection 3.5 with a jump table
-        for (s) |c| switch (c) {
-            'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@', '/', '?' => {
-                p[0] = c;
-                p += 1;
-            },
-            else => {
-                percentEncode(&p, c);
-            },
-        };
-    }
-
+    if (fragment) |s| writeFragment(&p, s);
     return b;
 }
 
@@ -1427,20 +1378,82 @@ test "Params and/or Fragment" {
     try expectEqualStrings("arbitrary?%2B=%2B&%2B#+", try addParamsAndOrFragment("arbitrary", &.{ .{ .key = "+", .value = "+" }, .{ .key = "+" } }, "+", allocator));
 }
 
-fn paramSize(s: []const u8) usize {
-    var n: usize = 0;
-    for (s) |c| n += switch (c) {
+var param_char_sizes: [256]u2 = buildParamCharSizes();
+
+fn buildParamCharSizes() [256]u2 {
+    var sizes: [256]u2 = undefined;
+    for (0..256) |c| sizes[c] = switch (c) {
         // unreserved
-        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => @as(u2, 1),
+        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
         // sub-delims − "=&+"
-        inline '!', '$', '\'', '(', ')', '*', ',', ';' => @as(u2, 1),
+        inline '!', '$', '\'', '(', ')', '*', ',', ';' => 1,
         // query
-        inline ':', '@', '/', '?' => @as(u2, 1),
+        inline ':', '@', '/', '?' => 1,
         // space is mapped to +
-        ' ' => @as(u2, 1),
-        inline else => @as(u2, 3),
+        ' ' => 1,
+        else => 3,
     };
+    return sizes;
+}
+
+fn paramSize(p: QueryParam) usize {
+    var n: usize = 1; // '?' or '&'
+    for (p.key) |c| n += param_char_sizes[c];
+    if (p.value) |s| {
+        n += 1; // "="
+        for (s) |c| n += param_char_sizes[c];
+    }
     return n;
+}
+
+fn writeParamValue(p: *[*]u8, s: []const u8) void {
+    for (s) |c| {
+        if (c == ' ') {
+            p.*[0] = '+';
+            p.* += 1;
+        } else if (param_char_sizes[c] > 1) {
+            percentEncode(p, c);
+        } else {
+            p.*[0] = c;
+            p.* += 1;
+        }
+    }
+}
+
+var fragment_char_sizes: [256]u2 = buildFragmentCharSizes();
+
+fn buildFragmentCharSizes() [256]u2 {
+    var sizes: [256]u2 = undefined;
+    // match fragment from RFC 3986, subsection 3.5
+    for (0..256) |c| sizes[c] = switch (c) {
+        // unreserved
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
+        // sub-delims
+        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
+        // pchar & fragment
+        ':', '@', '/', '?' => 1,
+        else => 3,
+    };
+    return sizes;
+}
+
+fn fragmentSize(s: []const u8) usize {
+    var size: usize = 1; // "#"
+    for (s) |c| size += fragment_char_sizes[c];
+    return size;
+}
+
+fn writeFragment(p: *[*]u8, s: []const u8) void {
+    p.*[0] = '#';
+    p.* += 1;
+    for (s) |c| {
+        if (fragment_char_sizes[c] > 1) {
+            percentEncode(p, c);
+        } else {
+            p.*[0] = c;
+            p.* += 1;
+        }
+    }
 }
 
 const hex_table = "0123456789ABCDEF";
