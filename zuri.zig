@@ -174,18 +174,18 @@ pub const ParseError = error{
 
 /// Parse returns a mapping of s if and only if s is a valid URI.
 pub fn parse(s: []const u8) ParseError!Parts {
-    // match scheme from RFC 3986, subsection 3.1 with a jump table
+    // match scheme from RFC 3986, subsection 3.1
     for (s, 0..) |c, i| switch (c) {
         // ALPHA from RFC 2234, subsection 6.1
-        inline 'A'...'Z', 'a'...'z' => continue,
+        'A'...'Z', 'a'...'z' => continue,
         // DIGIT from RFC 2234, subsection 6.1
-        inline '0'...'9', '+', '-', '.' => if (i == 0) return ParseError.NoScheme,
+        '0'...'9', '+', '-', '.' => if (i == 0) return ParseError.NoScheme,
         ':' => {
             var p = Parts{ .raw_scheme = s[0 .. i + 1] };
             try sinceScheme(&p, s[i + 1 ..]);
             return p;
         },
-        inline else => return ParseError.NoScheme,
+        else => return ParseError.NoScheme,
     };
     return ParseError.NoScheme;
 }
@@ -701,9 +701,9 @@ fn pathContinue(p: *Parts, s: []const u8) ParseError!void {
         // unreserved
         inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => i += 1,
         // sub-delims
-        inline '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => i += 1,
+        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => i += 1,
         // pchar, slash
-        inline ':', '@', '/' => i += 1,
+        ':', '@', '/' => i += 1,
         // pct-encoded
         '%' => {
             try checkEscape(s, i);
@@ -734,9 +734,9 @@ fn queryContinue(p: *Parts, s: []const u8) ParseError!void {
         // unreserved
         inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => i += 1,
         // sub-delims
-        inline '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => i += 1,
+        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => i += 1,
         // pchar & query
-        inline ':', '@', '/', '?' => i += 1,
+        ':', '@', '/', '?' => i += 1,
         // pct-encoded
         '%' => {
             try checkEscape(s, i);
@@ -762,9 +762,9 @@ fn fragmentContinue(p: *Parts, s: []const u8) ParseError!void {
         // unreserved
         inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => i += 1,
         // sub-delims
-        inline '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => i += 1,
+        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => i += 1,
         // pchar & fragment
-        inline ':', '@', '/', '?' => i += 1,
+        ':', '@', '/', '?' => i += 1,
         // pct-encoded
         '%' => {
             try checkEscape(s, i);
@@ -820,10 +820,10 @@ fn checkEscape(s: []const u8, i: usize) ParseError!void {
 
 fn hexval(c: u8) (u8) {
     return switch (c) {
-        inline '0'...'9' => c - '0',
-        inline 'a'...'f' => c - 'a' + 10,
-        inline 'A'...'F' => c - 'A' + 10,
-        inline else => 0x10,
+        '0'...'9' => c - '0',
+        'a'...'f' => c - 'a' + 10,
+        'A'...'F' => c - 'A' + 10,
+        else => 0x10,
     };
 }
 
@@ -851,14 +851,16 @@ pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []co
     schemeCheck(scheme); // compile-time validation
 
     // buffer decimal port number
-    var port_serial: [5]u8 = undefined; // range "0"–"65535"
-    var port_offset = port_serial.len;
+    var port_decimals: [5]u8 = undefined; // range ":0"–":65535"
+    var port_offset: usize = undefined;
     if (port) |portv| {
         var v: usize = @intCast(portv);
+        // write backwards
+        port_offset = port_decimals.len;
         while (true) {
+            const decimal: u8 = @intCast(@mod(v, 10));
             port_offset -= 1;
-            var decimal: u8 = @intCast(@mod(v, 10));
-            port_serial[port_offset] = '0' + decimal;
+            port_decimals[port_offset] = '0' + decimal;
             v /= 10;
             if (v == 0) break;
         }
@@ -866,7 +868,7 @@ pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []co
 
     // count output bytes
     var size = scheme.len + 3;
-    if (port) |_| size += 1 + port_serial.len - port_offset;
+    if (port) |_| size += 1 + port_decimals.len - port_offset;
     if (userinfo) |u| size += userinfoSize(u);
     for (hostname) |c| {
         size += switch (c) {
@@ -903,10 +905,9 @@ pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []co
     if (port) |_| {
         p[0] = ':';
         p += 1;
-        for (port_serial[port_offset..]) |c| {
-            p[0] = c;
-            p += 1;
-        }
+        var s = port_decimals[port_offset..];
+        @memcpy(p, s);
+        p += s.len;
     }
     writePathSegs(&p, path_segs);
     return b;
@@ -1153,8 +1154,8 @@ inline fn userinfoSize(s: []const u8) usize {
     for (s) |c| {
         size += switch (c) {
             // unreserved ∪ sub-delims ∪ colon
-            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => 1,
-            inline else => 3,
+            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => @as(u2, 1),
+            inline else => @as(u2, 3),
         };
     }
     return size;
@@ -1163,11 +1164,11 @@ inline fn userinfoSize(s: []const u8) usize {
 fn writeUserinfo(p: *[*]u8, s: []const u8) void {
     for (s) |c| switch (c) {
         // unreserved ∪ sub-delims ∪ colon
-        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => {
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => {
             p.*[0] = c;
             p.* += 1;
         },
-        inline else => {
+        else => {
             percentEncode(p, c);
         },
     };
@@ -1183,8 +1184,8 @@ fn pathSegsSize(segs: []const []const u8) usize {
         for (seg) |c| {
             size += switch (c) {
                 // unreserved ∪ sub-delims ∪ pchar
-                inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => 1,
-                else => 3,
+                inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => @as(u2, 1),
+                inline else => @as(u2, 3),
             };
         }
     }
@@ -1198,11 +1199,11 @@ fn writePathSegs(p: *[*]u8, segs: []const []const u8) void {
         for (seg) |c| {
             switch (c) {
                 // unreserved ∪ sub-delims ∪ pchar
-                inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => {
+                'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => {
                     p.*[0] = c;
                     p.* += 1;
                 },
-                inline else => percentEncode(p, c),
+                else => percentEncode(p, c),
             }
         }
     }
@@ -1332,12 +1333,12 @@ pub fn addParamsAndOrFragment(uri: []const u8, params: []const QueryParam, fragm
         // match fragment from RFC 3986, subsection 3.5 with a size table
         for (s) |c| size += switch (c) {
             // unreserved
-            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
+            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => @as(u2, 1),
             // sub-delims
-            inline '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
+            inline '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => @as(u2, 1),
             // pchar & fragment
-            inline ':', '@', '/', '?' => 1,
-            inline else => 3,
+            inline ':', '@', '/', '?' => @as(u2, 1),
+            inline else => @as(u2, 3),
         };
     }
 
@@ -1353,7 +1354,7 @@ pub fn addParamsAndOrFragment(uri: []const u8, params: []const QueryParam, fragm
 
         for (param.key) |c| switch (c) {
             // query − "=&+"
-            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '\'', '(', ')', '*', ',', ';', ':', '@', '/', '?' => {
+            'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '\'', '(', ')', '*', ',', ';', ':', '@', '/', '?' => {
                 p[0] = c;
                 p += 1;
             },
@@ -1361,7 +1362,7 @@ pub fn addParamsAndOrFragment(uri: []const u8, params: []const QueryParam, fragm
                 p[0] = '+';
                 p += 1;
             },
-            inline else => percentEncode(&p, c),
+            else => percentEncode(&p, c),
         };
 
         if (param.value) |s| {
@@ -1370,7 +1371,7 @@ pub fn addParamsAndOrFragment(uri: []const u8, params: []const QueryParam, fragm
 
             for (s) |c| switch (c) {
                 // query − "=&+"
-                inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '\'', '(', ')', '*', ',', ';', ':', '@', '/', '?' => {
+                'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '\'', '(', ')', '*', ',', ';', ':', '@', '/', '?' => {
                     p[0] = c;
                     p += 1;
                 },
@@ -1378,7 +1379,7 @@ pub fn addParamsAndOrFragment(uri: []const u8, params: []const QueryParam, fragm
                     p[0] = '+';
                     p += 1;
                 },
-                inline else => {
+                else => {
                     // It seems like the quota adds up in a function
                     // and the default of 1k was hit here. 🤔
                     @setEvalBranchQuota(2000);
@@ -1394,11 +1395,11 @@ pub fn addParamsAndOrFragment(uri: []const u8, params: []const QueryParam, fragm
 
         // match fragment from RFC 3986, subsection 3.5 with a jump table
         for (s) |c| switch (c) {
-            inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@', '/', '?' => {
+            'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@', '/', '?' => {
                 p[0] = c;
                 p += 1;
             },
-            inline else => {
+            else => {
                 percentEncode(&p, c);
             },
         };
@@ -1430,14 +1431,14 @@ fn paramSize(s: []const u8) usize {
     var n: usize = 0;
     for (s) |c| n += switch (c) {
         // unreserved
-        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
+        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => @as(u2, 1),
         // sub-delims − "=&+"
-        '!', '$', '\'', '(', ')', '*', ',', ';' => 1,
+        inline '!', '$', '\'', '(', ')', '*', ',', ';' => @as(u2, 1),
         // query
-        ':', '@', '/', '?' => 1,
+        inline ':', '@', '/', '?' => @as(u2, 1),
         // space is mapped to +
-        ' ' => 1,
-        inline else => 3,
+        ' ' => @as(u2, 1),
+        inline else => @as(u2, 3),
     };
     return n;
 }

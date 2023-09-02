@@ -2,7 +2,10 @@
 test: zuri.out
 
 .PHONY: bench
-bench: bench.out
+bench: zig-out
+	$?/bin/bench
+	$?/bin/bench
+	$?/bin/bench
 
 zuri.out: zuri.zig
 	zig test $? | tee $@
@@ -34,10 +37,6 @@ fuzz-parse-console: zig-out
 fuzz-urn-console: zig-out
 	# samples not applicable yet it does not matter
 	afl-fuzz -i sample -o fuzz-urn -O -g 0 -G 64 -- $?/bin/fuzz-urn
-
-
-bench.out: zig-out
-	$?/bin/bench | tee $@
 
 
 .PHONY: dist

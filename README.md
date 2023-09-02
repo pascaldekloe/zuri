@@ -106,11 +106,13 @@ on your machine.
 
 ```
 benchmark newUrl with host www.w3.org and path { 1999, 02, 22-rdf-syntax-ns }
-URL construction took 92 ns on average, including free
+URL construction took 52 ns on average, including free
+benchmark newIp6Url with address { 104, 116, 116, 112, 58, 47, 47, 119, 119, 119, 46, 119, 51, 46, 111, 114 } and path { 1999, 02, 22-rdf-syntax-ns }
+IPv6 URL construction took 46 ns on average, including free
 benchmark newUrn with namespace specific part 99/02/22-rdf-syntax-ns#Description
-URN construction took 74 ns on average, including free
+URN construction took 79 ns on average, including free
 benchmark parse with http://www.w3.org/1999/02/22-rdf-syntax-ns#Description
-parse took 42 ns on average
+parse took 40 ns on average
 ```
 
 
