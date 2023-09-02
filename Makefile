@@ -19,6 +19,9 @@ doc: zuri.zig
 	rm -fr doc
 	zig build-lib -fno-emit-bin -femit-docs=$@ $?
 
+bench.asm: zuri.zig bench.zig
+	zig build-exe -O ReleaseFast -femit-asm=$@ -fno-emit-bin -fstrip bench.zig
+
 
 zig-out: build.zig zuri.zig fuzz-params.zig fuzz-parse.zig fuzz-urn.zig bench.zig
 	zig build
@@ -54,4 +57,4 @@ test-samples: zig-out/bin/fuzz-parse
 clean:
 	rm -fr zig-cache zig-out
 	rm -fr doc
-	rm -f *.out
+	rm -f *.out *.asm
