@@ -1,7 +1,10 @@
-/// Strict parsing and formatting of URIs.
-const std = @import("std");
-const Allocator = std.mem.Allocator;
+//! Strict parsing of URIs.
 
+const std = @import("std");
+const parseInt = std.fmt.parseInt;
+const Allocator = std.mem.Allocator;
+const test_allocator = std.testing.allocator;
+const failing_allocator = std.testing.failing_allocator;
 const expect = std.testing.expect;
 const expectFmt = std.testing.expectFmt;
 const expectEqual = std.testing.expectEqual;
@@ -36,7 +39,7 @@ pub const View = struct {
     raw_fragment: []const u8 = "",
 
     /// Scheme returns the value normalized to lower-case.
-    pub fn scheme(v: *const View, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn scheme(v: *const View, m: Allocator) error{OutOfMemory}![]u8 {
         if (v.raw_scheme.len < 2) return "";
         const s = v.raw_scheme[0 .. v.raw_scheme.len - 1];
 
@@ -73,7 +76,7 @@ pub const View = struct {
 
     /// Userinfo returns the value with any and all of its percent-encodings
     /// resolved.
-    pub fn userinfo(v: *const View, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn userinfo(v: *const View, m: Allocator) error{OutOfMemory}![]u8 {
         if (v.raw_userinfo.len < 2) return "";
         return unescape(v.raw_userinfo[0 .. v.raw_userinfo.len - 1], m);
     }
@@ -88,7 +91,7 @@ pub const View = struct {
 
     /// Host returns the value with any and all of its percent-encodings
     /// resolved.
-    pub fn host(v: *const View, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn host(v: *const View, m: Allocator) error{OutOfMemory}![]u8 {
         if (v.raw_host.len == 0) return "";
         return unescape(v.raw_host, m);
     }
@@ -104,12 +107,12 @@ pub const View = struct {
     /// Port returns the value with zero for undefined or out-of-bounds.
     pub fn port(v: *const View) u16 {
         if (v.raw_port.len < 2) return 0;
-        return std.fmt.parseInt(u16, v.raw_port[1..], 10) catch 0;
+        return parseInt(u16, v.raw_port[1..], 10) catch 0;
     }
 
     /// Path returns the value with any and all of its percent-encodings
     /// resolved.
-    pub fn path(v: *const View, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn path(v: *const View, m: Allocator) error{OutOfMemory}![]u8 {
         if (v.raw_path.len == 0) return "";
         return unescape(v.raw_path, m);
     }
@@ -121,7 +124,7 @@ pub const View = struct {
     }
 
     /// Query returns the value with any and all percent-encodings resolved.
-    pub fn query(v: *const View, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn query(v: *const View, m: Allocator) error{OutOfMemory}![]u8 {
         if (v.raw_query.len < 2) return "";
         return unescape(v.raw_query[1..], m);
     }
@@ -134,7 +137,7 @@ pub const View = struct {
     }
 
     /// Fragment returns the value with any and all percent-encodings resolved.
-    pub fn fragment(v: *const View, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    pub fn fragment(v: *const View, m: Allocator) error{OutOfMemory}![]u8 {
         if (v.raw_fragment.len < 2) return "";
         return unescape(v.raw_fragment[1..], m);
     }
@@ -301,36 +304,32 @@ test "Examples" {
 }
 
 test "Upper-Case URN" {
-    var m = std.testing.allocator;
-
     // sample from “Using ISBNs as URNs” RFC 3187, subsection 3.2
     var v = try parse("URN:ISBN:0-395-36341-1");
 
     try expect(v.hasScheme("urn"));
 
-    var scheme = try v.scheme(m);
-    defer m.free(scheme);
+    var scheme = try v.scheme(test_allocator);
+    defer test_allocator.free(scheme);
     try expectEqualStrings("urn", scheme);
 
     try expect(v.hasPath("ISBN:0-395-36341-1"));
     try expect(!v.hasPath("isbn:0-395-36341-1"));
 
-    var path = try v.path(m);
-    defer m.free(path);
+    var path = try v.path(test_allocator);
+    defer test_allocator.free(path);
     try expectEqualStrings("ISBN:0-395-36341-1", path);
 }
 
 test "Tricky" {
-    var m = std.testing.allocator;
-
     var v = try parse("bang://AD2%5cBill%40live.com@?C:%5cProgram+Files%5C*.EXE");
 
-    var userinfo = try v.userinfo(m);
-    defer m.free(userinfo);
+    var userinfo = try v.userinfo(test_allocator);
+    defer test_allocator.free(userinfo);
     try expectEqualStrings("AD2\\Bill@live.com", userinfo);
 
-    var query = try v.query(m);
-    defer m.free(query);
+    var query = try v.query(test_allocator);
+    defer test_allocator.free(query);
     try expectEqualStrings("C:\\Program+Files\\*.EXE", query);
 }
 
@@ -359,14 +358,12 @@ test "Bloat" {
     try expect(!v.hasFragment("80%E2%80%93160"));
     try expect(!v.hasFragment("#80%E2%80%93160"));
 
-    var m = std.testing.allocator;
-
-    var query = try v.query(m);
-    defer m.free(query);
+    var query = try v.query(test_allocator);
+    defer test_allocator.free(query);
     try expectEqualStrings("SELECT * FROM users;", query);
 
-    var fragment = try v.fragment(m);
-    defer m.free(fragment);
+    var fragment = try v.fragment(test_allocator);
+    defer test_allocator.free(fragment);
     try expectEqualStrings("80–160", fragment);
 }
 
@@ -381,9 +378,9 @@ test "Absent" {
     try expect(v.hasPath(""));
     try expect(!v.hasFragment(""));
 
-    try expectEqualStrings("", try v.path(std.testing.failing_allocator));
-    try expectEqualStrings("", try v.query(std.testing.failing_allocator));
-    try expectEqualStrings("", try v.fragment(std.testing.failing_allocator));
+    try expectEqualStrings("", try v.path(failing_allocator));
+    try expectEqualStrings("", try v.query(failing_allocator));
+    try expectEqualStrings("", try v.fragment(failing_allocator));
 }
 
 test "Empty" {
@@ -401,10 +398,10 @@ test "Empty" {
     try expect(v.hasFragment(""));
     try expect(!v.hasFragment("#"));
 
-    try expectEqualStrings("", try v.userinfo(std.testing.failing_allocator));
-    try expectEqualStrings("", try v.path(std.testing.failing_allocator));
-    try expectEqualStrings("", try v.query(std.testing.failing_allocator));
-    try expectEqualStrings("", try v.fragment(std.testing.failing_allocator));
+    try expectEqualStrings("", try v.userinfo(failing_allocator));
+    try expectEqualStrings("", try v.path(failing_allocator));
+    try expectEqualStrings("", try v.query(failing_allocator));
+    try expectEqualStrings("", try v.fragment(failing_allocator));
 }
 
 // Parse all components after raw_scheme, which can be none.
@@ -615,7 +612,7 @@ fn Ip4inIp6Continue(v: *View, s: []const u8, start: usize) ParseError!void {
             decn += 1;
         },
         '.' => {
-            _ = std.fmt.parseInt(u8, s[i - decn .. i], 10) catch
+            _ = parseInt(u8, s[i - decn .. i], 10) catch
                 return ParseError.IllegalAddress;
             if (decn == 0 or s[i - decn] == '0')
                 return ParseError.IllegalAddress;
@@ -623,7 +620,7 @@ fn Ip4inIp6Continue(v: *View, s: []const u8, start: usize) ParseError!void {
             decn = 0;
         },
         ']' => {
-            _ = std.fmt.parseInt(u8, s[i - decn .. i], 10) catch
+            _ = parseInt(u8, s[i - decn .. i], 10) catch
                 return ParseError.IllegalAddress;
             if (decn == 0 or octn != 4 or s[i - decn] == '0')
                 return ParseError.IllegalAddress;

@@ -1,13 +1,10 @@
-/// Strict parsing and formatting of URIs.
+//! Strict formatting of URIs.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const FixedBufferAllocator = std.heap.FixedBufferAllocator;
 
 const expect = std.testing.expect;
-const expectFmt = std.testing.expectFmt;
-const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
-const expectStringEndsWith = std.testing.expectStringEndsWith;
-const expectStringStartsWith = std.testing.expectStringStartsWith;
 
 var host_char_sizes: [256]u2 = buildHostCharSizes();
 
@@ -83,7 +80,7 @@ pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []co
 test "URL Construction" {
     // allocate URIs without free to get readable errors (on single line)
     var buffer: [1024]u8 = undefined;
-    var fix = std.heap.FixedBufferAllocator.init(&buffer);
+    var fix = FixedBufferAllocator.init(&buffer);
     const allocator = fix.allocator();
 
     // “Internationalized Resource Identifiers” RFC 3987, subsection 3.2.1
@@ -134,7 +131,7 @@ pub fn newIp6Url(comptime scheme: []const u8, userinfo: ?[]const u8, addr: [16]u
 test "IPv6 URL Construction" {
     // allocate URIs without free to get readable errors (on single line)
     var buffer: [1024]u8 = undefined;
-    var fix = std.heap.FixedBufferAllocator.init(&buffer);
+    var fix = FixedBufferAllocator.init(&buffer);
     const allocator = fix.allocator();
 
     try expectEqualStrings("ftp://[::0]/%F0%9F%91%BE", try newIp6Url("ftp", null, .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, null, &.{"👾"}, allocator));
@@ -451,7 +448,7 @@ pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime es
 test "URN Construction" {
     // allocate URIs without free to get readable errors (on single line)
     var buffer: [4096]u8 = undefined;
-    var fix = std.heap.FixedBufferAllocator.init(&buffer);
+    var fix = FixedBufferAllocator.init(&buffer);
     const allocator = fix.allocator();
 
     try expectEqualStrings("urn:Example:0", try newUrn("Example", "0", "Ol", allocator));
@@ -525,7 +522,7 @@ pub fn addParamsAndOrFragment(uri: []const u8, params: []const QueryParam, fragm
 test "Params and/or Fragment" {
     // allocate URIs without free to get readable errors (on single line)
     var buffer: [4096]u8 = undefined;
-    var fix = std.heap.FixedBufferAllocator.init(&buffer);
+    var fix = FixedBufferAllocator.init(&buffer);
     const allocator = fix.allocator();
 
     try expectEqualStrings("arbitrary", try addParamsAndOrFragment("arbitrary", &.{}, null, allocator));
