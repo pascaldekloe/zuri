@@ -16,9 +16,9 @@ pub fn main() !void {
     var bench_host: []const u8 = "";
     var bench_segs: [3][]const u8 = .{ "", "", "" };
     {
-        var parts = try zuri.parse(bench_url);
-        bench_host = parts.raw_host;
-        var path = std.mem.splitScalar(u8, parts.raw_path[1..], '/');
+        const view = try zuri.parse(bench_url);
+        bench_host = view.raw_host;
+        var path = std.mem.splitScalar(u8, view.raw_path[1..], '/');
         if (path.next()) |s| {
             bench_segs[0] = s;
         }
@@ -98,8 +98,8 @@ pub fn main() !void {
 
         var n: usize = bench_count;
         while (n != 0) : (n -= 1) {
-            var parts = try zuri.parse(bench_url);
-            mem.doNotOptimizeAway(&parts);
+            const view = try zuri.parse(bench_url);
+            mem.doNotOptimizeAway(&view);
         }
 
         const end = timer.read();

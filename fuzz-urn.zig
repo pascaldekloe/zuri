@@ -18,11 +18,11 @@ pub fn main() !void {
         std.os.exit(137);
     };
 
-    const parts = zuri.parse(urn) catch |err| {
+    const view = zuri.parse(urn) catch |err| {
         std.log.err("invalid URN result {s}: {}", .{ urn, err });
         std.os.exit(1);
     };
-    if (!parts.hasPath(fuzz_in)) {
+    if (!view.hasPath(fuzz_in)) {
         std.log.err("fuzz input does not match path of {s}", .{urn});
         std.os.exit(1);
     }

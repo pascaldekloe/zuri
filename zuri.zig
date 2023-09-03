@@ -1,5 +1,4 @@
-//! URI/IRI reading
-
+/// Strict parsing and formatting of URIs.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
@@ -10,10 +9,10 @@ const expectEqualStrings = std.testing.expectEqualStrings;
 const expectStringEndsWith = std.testing.expectStringEndsWith;
 const expectStringStartsWith = std.testing.expectStringStartsWith;
 
-/// Parts contains a lossless decomposition with all URI components as is. Use
+/// View contains a lossless decomposition with all URI components as is. Use
 /// parse to obtain a valid instance. The input string equals the concatenation
 /// of raw_scheme, raw_authority, raw_path, raw_query and raw_fragment.
-pub const Parts = struct {
+pub const View = struct {
     /// The scheme component ends with ':'. It may contain upper-case letters.
     raw_scheme: []const u8,
 
@@ -26,8 +25,8 @@ pub const Parts = struct {
     /// The port component, if any, starts with ':'.
     raw_port: []const u8 = "",
 
-    /// The path compoment, if any, starts with '/' when the URI has an
-    /// authority component.
+    /// The path compoment, if any, starts with '/' when (raw_)authority is
+    /// present.
     raw_path: []const u8 = "",
 
     /// The query compoment, if any, starts with '?'.
@@ -37,9 +36,9 @@ pub const Parts = struct {
     raw_fragment: []const u8 = "",
 
     /// Scheme returns the value normalized to lower-case.
-    pub fn scheme(p: *const Parts, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
-        if (p.raw_scheme.len < 2) return "";
-        const s = p.raw_scheme[0 .. p.raw_scheme.len - 1];
+    pub fn scheme(v: *const View, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+        if (v.raw_scheme.len < 2) return "";
+        const s = v.raw_scheme[0 .. v.raw_scheme.len - 1];
 
         var b = try m.alloc(u8, s.len);
         for (s, 0..) |c, i| {
@@ -53,21 +52,19 @@ pub const Parts = struct {
     }
 
     /// HasScheme returns whether the value normalized to lower-case equals match.
-    pub fn hasScheme(p: *const Parts, comptime match: []const u8) bool {
+    pub fn hasScheme(v: *const View, comptime match: []const u8) bool {
         // compile-time validation of match
-        inline for (match) |c| {
-            switch (c) {
-                'a'...'z', '0'...'9', '+', '-', '.' => continue,
-                'A'...'Z' => @compileError("upper-case in scheme (never matches)"),
-                else => @compileError("illegal character in scheme (never matches)"),
-            }
-        }
+        inline for (match) |c| switch (c) {
+            'a'...'z', '0'...'9', '+', '-', '.' => continue,
+            'A'...'Z' => @compileError("upper-case in scheme (never matches)"),
+            else => @compileError("illegal character in scheme (never matches)"),
+        };
         if (match.len == 0 or match[0] < 'a' or match[0] > 'z')
             @compileError("without letter start (never matches)");
 
-        if (match.len + 1 != p.raw_scheme.len) return false;
+        if (match.len + 1 != v.raw_scheme.len) return false;
         inline for (match, 0..) |c, i| {
-            var r = p.raw_scheme.ptr[i];
+            var r = v.raw_scheme.ptr[i];
             if (r != c and (c < 'a' or c > 'z' or c - ('a' - 'A') != r))
                 return false;
         }
@@ -76,77 +73,77 @@ pub const Parts = struct {
 
     /// Userinfo returns the value with any and all of its percent-encodings
     /// resolved.
-    pub fn userinfo(p: *const Parts, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
-        if (p.raw_userinfo.len < 2) return "";
-        return unescape(p.raw_userinfo[0 .. p.raw_userinfo.len - 1], m);
+    pub fn userinfo(v: *const View, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+        if (v.raw_userinfo.len < 2) return "";
+        return unescape(v.raw_userinfo[0 .. v.raw_userinfo.len - 1], m);
     }
 
     /// HasUserinfo returns whether the userinfo component is present, and
     /// whether its value with any and all of its percent-encodings resolved
     /// equals match.
-    pub fn hasUserinfo(p: *const Parts, match: []const u8) bool {
-        if (p.raw_userinfo.len == 0) return false;
-        return equalString(p.raw_userinfo[0 .. p.raw_userinfo.len - 1], match);
+    pub fn hasUserinfo(v: *const View, match: []const u8) bool {
+        if (v.raw_userinfo.len == 0) return false;
+        return equalString(v.raw_userinfo[0 .. v.raw_userinfo.len - 1], match);
     }
 
     /// Host returns the value with any and all of its percent-encodings
     /// resolved.
-    pub fn host(p: *const Parts, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
-        if (p.raw_host.len == 0) return "";
-        return unescape(p.raw_host, m);
+    pub fn host(v: *const View, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+        if (v.raw_host.len == 0) return "";
+        return unescape(v.raw_host, m);
     }
 
     /// HasHost returns whether the authority component is present, and whether
     /// the host value with any and all of its percent-encodings resolved equals
     /// match.
-    pub fn hasHost(p: *const Parts, match: []const u8) bool {
-        if (p.raw_authority.len == 0) return false;
-        return equalString(p.raw_host, match);
+    pub fn hasHost(v: *const View, match: []const u8) bool {
+        if (v.raw_authority.len == 0) return false;
+        return equalString(v.raw_host, match);
     }
 
     /// Port returns the value with zero for undefined or out-of-bounds.
-    pub fn port(p: *const Parts) u16 {
-        if (p.raw_port.len < 2) return 0;
-        return std.fmt.parseInt(u16, p.raw_port[1..], 10) catch 0;
+    pub fn port(v: *const View) u16 {
+        if (v.raw_port.len < 2) return 0;
+        return std.fmt.parseInt(u16, v.raw_port[1..], 10) catch 0;
     }
 
     /// Path returns the value with any and all of its percent-encodings
     /// resolved.
-    pub fn path(p: *const Parts, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
-        if (p.raw_path.len == 0) return "";
-        return unescape(p.raw_path, m);
+    pub fn path(v: *const View, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+        if (v.raw_path.len == 0) return "";
+        return unescape(v.raw_path, m);
     }
 
     /// HasPath returns whether the value with any and all percent-encodings
     /// resolved equals match.
-    pub fn hasPath(p: *const Parts, match: []const u8) bool {
-        return equalString(p.raw_path, match);
+    pub fn hasPath(v: *const View, match: []const u8) bool {
+        return equalString(v.raw_path, match);
     }
 
     /// Query returns the value with any and all percent-encodings resolved.
-    pub fn query(p: *const Parts, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
-        if (p.raw_query.len < 2) return "";
-        return unescape(p.raw_query[1..], m);
+    pub fn query(v: *const View, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+        if (v.raw_query.len < 2) return "";
+        return unescape(v.raw_query[1..], m);
     }
 
     /// HasQuery returns whether a query component is present, and whether its
     /// value with any and all percent-encodings resolved equals match.
-    pub fn hasQuery(p: *const Parts, match: []const u8) bool {
-        if (p.raw_query.len == 0) return false;
-        return equalString(p.raw_query[1..], match);
+    pub fn hasQuery(v: *const View, match: []const u8) bool {
+        if (v.raw_query.len == 0) return false;
+        return equalString(v.raw_query[1..], match);
     }
 
     /// Fragment returns the value with any and all percent-encodings resolved.
-    pub fn fragment(p: *const Parts, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
-        if (p.raw_fragment.len < 2) return "";
-        return unescape(p.raw_fragment[1..], m);
+    pub fn fragment(v: *const View, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+        if (v.raw_fragment.len < 2) return "";
+        return unescape(v.raw_fragment[1..], m);
     }
 
     /// HasFragment returns whether a fragment component is present, and whether
     /// its value with any and all percent-encodings resolved equals match.
-    pub fn hasFragment(p: *const Parts, match: []const u8) bool {
-        if (p.raw_fragment.len == 0) return false;
-        return equalString(p.raw_fragment[1..], match);
+    pub fn hasFragment(v: *const View, match: []const u8) bool {
+        if (v.raw_fragment.len == 0) return false;
+        return equalString(v.raw_fragment[1..], match);
     }
 };
 
@@ -173,7 +170,7 @@ pub const ParseError = error{
 };
 
 /// Parse returns a mapping of s if and only if s is a valid URI.
-pub fn parse(s: []const u8) ParseError!Parts {
+pub fn parse(s: []const u8) ParseError!View {
     // match scheme from RFC 3986, subsection 3.1
     for (s, 0..) |c, i| switch (c) {
         // ALPHA from RFC 2234, subsection 6.1
@@ -181,9 +178,9 @@ pub fn parse(s: []const u8) ParseError!Parts {
         // DIGIT from RFC 2234, subsection 6.1
         '0'...'9', '+', '-', '.' => if (i == 0) return ParseError.NoScheme,
         ':' => {
-            var p = Parts{ .raw_scheme = s[0 .. i + 1] };
-            try sinceScheme(&p, s[i + 1 ..]);
-            return p;
+            var v = View{ .raw_scheme = s[0 .. i + 1] };
+            try sinceScheme(&v, s[i + 1 ..]);
+            return v;
         },
         else => return ParseError.NoScheme,
     };
@@ -277,29 +274,29 @@ test "Examples" {
     };
 
     for (samples) |s| {
-        var p = parse(s) catch |err| {
+        var v = parse(s) catch |err| {
             std.debug.print("got error {} for {s}\n", .{ err, s });
             return err;
         };
 
         // ensure lossless mapping
-        try expectFmt(s, "{s}{s}{s}{s}{s}", .{ p.raw_scheme, p.raw_authority, p.raw_path, p.raw_query, p.raw_fragment });
+        try expectFmt(s, "{s}{s}{s}{s}{s}", .{ v.raw_scheme, v.raw_authority, v.raw_path, v.raw_query, v.raw_fragment });
 
         // verify constraints from the field comments
-        try expectStringEndsWith(p.raw_scheme, ":");
-        if (p.raw_authority.len != 0) {
-            try expectFmt(p.raw_authority, "//{s}{s}{s}", .{ p.raw_userinfo, p.raw_host, p.raw_port });
-            if (p.raw_userinfo.len != 0) try expectStringEndsWith(p.raw_userinfo, "@");
-            if (p.raw_port.len != 0) try expectStringStartsWith(p.raw_port, ":");
+        try expectStringEndsWith(v.raw_scheme, ":");
+        if (v.raw_authority.len != 0) {
+            try expectFmt(v.raw_authority, "//{s}{s}{s}", .{ v.raw_userinfo, v.raw_host, v.raw_port });
+            if (v.raw_userinfo.len != 0) try expectStringEndsWith(v.raw_userinfo, "@");
+            if (v.raw_port.len != 0) try expectStringStartsWith(v.raw_port, ":");
         } else {
             const empty: []const u8 = "";
-            try expectEqual(empty, p.raw_userinfo);
-            try expectEqual(empty, p.raw_host);
-            try expectEqual(empty, p.raw_port);
+            try expectEqual(empty, v.raw_userinfo);
+            try expectEqual(empty, v.raw_host);
+            try expectEqual(empty, v.raw_port);
         }
-        if (p.raw_path.len != 0 and p.raw_authority.len != 0) try expectStringStartsWith(p.raw_path, "/");
-        if (p.raw_query.len != 0) try expectStringStartsWith(p.raw_query, "?");
-        if (p.raw_fragment.len != 0) try expectStringStartsWith(p.raw_fragment, "#");
+        if (v.raw_path.len != 0 and v.raw_authority.len != 0) try expectStringStartsWith(v.raw_path, "/");
+        if (v.raw_query.len != 0) try expectStringStartsWith(v.raw_query, "?");
+        if (v.raw_fragment.len != 0) try expectStringStartsWith(v.raw_fragment, "#");
     }
 }
 
@@ -307,18 +304,18 @@ test "Upper-Case URN" {
     var m = std.testing.allocator;
 
     // sample from “Using ISBNs as URNs” RFC 3187, subsection 3.2
-    var p = try parse("URN:ISBN:0-395-36341-1");
+    var v = try parse("URN:ISBN:0-395-36341-1");
 
-    try expect(p.hasScheme("urn"));
+    try expect(v.hasScheme("urn"));
 
-    var scheme = try p.scheme(m);
+    var scheme = try v.scheme(m);
     defer m.free(scheme);
     try expectEqualStrings("urn", scheme);
 
-    try expect(p.hasPath("ISBN:0-395-36341-1"));
-    try expect(!p.hasPath("isbn:0-395-36341-1"));
+    try expect(v.hasPath("ISBN:0-395-36341-1"));
+    try expect(!v.hasPath("isbn:0-395-36341-1"));
 
-    var path = try p.path(m);
+    var path = try v.path(m);
     defer m.free(path);
     try expectEqualStrings("ISBN:0-395-36341-1", path);
 }
@@ -326,97 +323,97 @@ test "Upper-Case URN" {
 test "Tricky" {
     var m = std.testing.allocator;
 
-    var p = try parse("bang://AD2%5cBill%40live.com@?C:%5cProgram+Files%5C*.EXE");
+    var v = try parse("bang://AD2%5cBill%40live.com@?C:%5cProgram+Files%5C*.EXE");
 
-    var userinfo = try p.userinfo(m);
+    var userinfo = try v.userinfo(m);
     defer m.free(userinfo);
     try expectEqualStrings("AD2\\Bill@live.com", userinfo);
 
-    var query = try p.query(m);
+    var query = try v.query(m);
     defer m.free(query);
     try expectEqualStrings("C:\\Program+Files\\*.EXE", query);
 }
 
 test "Bloat" {
-    var p = try parse("x-odbc://admin:fe:main@[0::192.168.57.2]:5432/cms?SELECT%20*%20FROM%20users;#80%E2%80%93160");
+    const v = try parse("x-odbc://admin:fe:main@[0::192.168.57.2]:5432/cms?SELECT%20*%20FROM%20users;#80%E2%80%93160");
 
-    try expectEqualStrings("x-odbc:", p.raw_scheme);
-    try expectEqualStrings("//admin:fe:main@[0::192.168.57.2]:5432", p.raw_authority);
-    try expectEqualStrings("admin:fe:main@", p.raw_userinfo);
-    try expectEqualStrings("[0::192.168.57.2]", p.raw_host);
-    try expectEqualStrings(":5432", p.raw_port);
-    try expectEqualStrings("/cms", p.raw_path);
-    try expectEqualStrings("?SELECT%20*%20FROM%20users;", p.raw_query);
-    try expectEqualStrings("#80%E2%80%93160", p.raw_fragment);
+    try expectEqualStrings("x-odbc:", v.raw_scheme);
+    try expectEqualStrings("//admin:fe:main@[0::192.168.57.2]:5432", v.raw_authority);
+    try expectEqualStrings("admin:fe:main@", v.raw_userinfo);
+    try expectEqualStrings("[0::192.168.57.2]", v.raw_host);
+    try expectEqualStrings(":5432", v.raw_port);
+    try expectEqualStrings("/cms", v.raw_path);
+    try expectEqualStrings("?SELECT%20*%20FROM%20users;", v.raw_query);
+    try expectEqualStrings("#80%E2%80%93160", v.raw_fragment);
 
-    try expect(p.hasScheme("x-odbc"));
-    try expect(p.hasUserinfo("admin:fe:main"));
-    try expect(!p.hasUserinfo("admin:fe:main@"));
-    try expect(p.hasHost("[0::192.168.57.2]"));
-    try expect(!p.hasHost("0::192.168.57.2"));
-    try expect(!p.hasHost("192.168.57.2"));
-    try expectEqual(@as(u16, 5432), p.port());
-    try expect(p.hasPath("/cms"));
-    try expect(!p.hasPath("cms"));
-    try expect(p.hasFragment("80–160"));
-    try expect(!p.hasFragment("80%E2%80%93160"));
-    try expect(!p.hasFragment("#80%E2%80%93160"));
+    try expect(v.hasScheme("x-odbc"));
+    try expect(v.hasUserinfo("admin:fe:main"));
+    try expect(!v.hasUserinfo("admin:fe:main@"));
+    try expect(v.hasHost("[0::192.168.57.2]"));
+    try expect(!v.hasHost("0::192.168.57.2"));
+    try expect(!v.hasHost("192.168.57.2"));
+    try expectEqual(@as(u16, 5432), v.port());
+    try expect(v.hasPath("/cms"));
+    try expect(!v.hasPath("cms"));
+    try expect(v.hasFragment("80–160"));
+    try expect(!v.hasFragment("80%E2%80%93160"));
+    try expect(!v.hasFragment("#80%E2%80%93160"));
 
     var m = std.testing.allocator;
 
-    var query = try p.query(m);
+    var query = try v.query(m);
     defer m.free(query);
     try expectEqualStrings("SELECT * FROM users;", query);
 
-    var fragment = try p.fragment(m);
+    var fragment = try v.fragment(m);
     defer m.free(fragment);
     try expectEqualStrings("80–160", fragment);
 }
 
 test "Absent" {
-    var p = try parse("X11:");
+    const v = try parse("X11:");
 
-    try expect(p.hasScheme("x11"));
-    try expect(!p.hasScheme("ssh"));
-    try expect(!p.hasUserinfo(""));
-    try expect(!p.hasHost(""));
-    try expect(p.port() == 0);
-    try expect(p.hasPath(""));
-    try expect(!p.hasFragment(""));
+    try expect(v.hasScheme("x11"));
+    try expect(!v.hasScheme("ssh"));
+    try expect(!v.hasUserinfo(""));
+    try expect(!v.hasHost(""));
+    try expect(v.port() == 0);
+    try expect(v.hasPath(""));
+    try expect(!v.hasFragment(""));
 
-    try expectEqualStrings("", try p.path(std.testing.failing_allocator));
-    try expectEqualStrings("", try p.query(std.testing.failing_allocator));
-    try expectEqualStrings("", try p.fragment(std.testing.failing_allocator));
+    try expectEqualStrings("", try v.path(std.testing.failing_allocator));
+    try expectEqualStrings("", try v.query(std.testing.failing_allocator));
+    try expectEqualStrings("", try v.fragment(std.testing.failing_allocator));
 }
 
 test "Empty" {
-    var p = try parse("x-://@:?#");
+    const v = try parse("x-://@:?#");
 
-    try expect(p.hasScheme("x-"));
-    try expect(!p.hasScheme("x"));
-    try expect(p.hasUserinfo(""));
-    try expect(!p.hasUserinfo("@"));
-    try expect(p.hasHost(""));
-    try expect(!p.hasHost("//"));
-    try expect(p.port() == 0);
-    try expect(p.hasPath(""));
-    try expect(!p.hasPath("/"));
-    try expect(p.hasFragment(""));
-    try expect(!p.hasFragment("#"));
+    try expect(v.hasScheme("x-"));
+    try expect(!v.hasScheme("x"));
+    try expect(v.hasUserinfo(""));
+    try expect(!v.hasUserinfo("@"));
+    try expect(v.hasHost(""));
+    try expect(!v.hasHost("//"));
+    try expect(v.port() == 0);
+    try expect(v.hasPath(""));
+    try expect(!v.hasPath("/"));
+    try expect(v.hasFragment(""));
+    try expect(!v.hasFragment("#"));
 
-    try expectEqualStrings("", try p.userinfo(std.testing.failing_allocator));
-    try expectEqualStrings("", try p.path(std.testing.failing_allocator));
-    try expectEqualStrings("", try p.query(std.testing.failing_allocator));
-    try expectEqualStrings("", try p.fragment(std.testing.failing_allocator));
+    try expectEqualStrings("", try v.userinfo(std.testing.failing_allocator));
+    try expectEqualStrings("", try v.path(std.testing.failing_allocator));
+    try expectEqualStrings("", try v.query(std.testing.failing_allocator));
+    try expectEqualStrings("", try v.fragment(std.testing.failing_allocator));
 }
 
 // Parse all components after raw_scheme, which can be none.
-fn sinceScheme(p: *Parts, s: []const u8) ParseError!void {
+fn sinceScheme(v: *View, s: []const u8) ParseError!void {
     // “The authority component is preceded by a double slash ("//") and is
     // terminated by the next slash ("/"), question mark ("?"), or number
     // sign ("#") character, or by the end of the URI.”
     if (s.len < 2 or s[0] != '/' or s[1] != '/') {
-        return pathContinue(p, s);
+        return pathContinue(v, s);
     }
     var i: usize = 2;
 
@@ -433,9 +430,9 @@ fn sinceScheme(p: *Parts, s: []const u8) ParseError!void {
         inline '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => i += 1,
         // userinfo
         '@' => {
-            if (p.raw_userinfo.len != 0) return ParseError.IllegalCharacter;
+            if (v.raw_userinfo.len != 0) return ParseError.IllegalCharacter;
             i += 1;
-            p.raw_userinfo = s[2..i];
+            v.raw_userinfo = s[2..i];
             colon_count = 0; // reset for host count
         },
         // either userinfo or port separator or invalid
@@ -445,21 +442,21 @@ fn sinceScheme(p: *Parts, s: []const u8) ParseError!void {
             i += 1;
         },
         '/' => {
-            try authoritySet(p, s[0..i], colon_count, last_colon);
-            return pathContinue(p, s[i..]);
+            try authoritySet(v, s[0..i], colon_count, last_colon);
+            return pathContinue(v, s[i..]);
         },
         '?' => {
-            try authoritySet(p, s[0..i], colon_count, last_colon);
-            return queryContinue(p, s[i..]);
+            try authoritySet(v, s[0..i], colon_count, last_colon);
+            return queryContinue(v, s[i..]);
         },
         '#' => {
-            try authoritySet(p, s[0..i], colon_count, last_colon);
-            return fragmentContinue(p, s[i..]);
+            try authoritySet(v, s[0..i], colon_count, last_colon);
+            return fragmentContinue(v, s[i..]);
         },
         '[' => {
-            if (i != 2 + p.raw_userinfo.len)
+            if (i != 2 + v.raw_userinfo.len)
                 return ParseError.IllegalCharacter;
-            return asIpLiteral(p, s, i);
+            return asIpLiteral(v, s, i);
         },
         '%' => { // pct-encoded
             try checkEscape(s, i);
@@ -468,22 +465,22 @@ fn sinceScheme(p: *Parts, s: []const u8) ParseError!void {
         inline else => return ParseError.IllegalCharacter,
     };
 
-    return authoritySet(p, s, colon_count, last_colon);
+    return authoritySet(v, s, colon_count, last_colon);
 }
 
-fn authoritySet(p: *Parts, s: []const u8, colon_count: usize, last_colon: usize) ParseError!void {
-    p.raw_authority = s;
+fn authoritySet(v: *View, s: []const u8, colon_count: usize, last_colon: usize) ParseError!void {
+    v.raw_authority = s;
 
     switch (colon_count) {
         0 => {
-            p.raw_host = s[2 + p.raw_userinfo.len ..];
+            v.raw_host = s[2 + v.raw_userinfo.len ..];
         },
         1 => {
-            p.raw_host = s[2 + p.raw_userinfo.len .. last_colon];
-            p.raw_port = s[last_colon..];
+            v.raw_host = s[2 + v.raw_userinfo.len .. last_colon];
+            v.raw_port = s[last_colon..];
 
             // match port from RFC 3986, subsection 3.2.3
-            for (p.raw_port[1..]) |c|
+            for (v.raw_port[1..]) |c|
                 if (c < '0' or c > '9')
                     return ParseError.PortNotNumber;
         },
@@ -492,7 +489,7 @@ fn authoritySet(p: *Parts, s: []const u8, colon_count: usize, last_colon: usize)
 }
 
 // Parses authority s since "[" at start.
-fn asIpLiteral(p: *Parts, s: []const u8, start: usize) ParseError!void {
+fn asIpLiteral(v: *View, s: []const u8, start: usize) ParseError!void {
     // “The use of "::" indicates one or more groups of 16 bits of zeros.
     // The "::" can only appear once in an address.  The "::" can also be
     // used to compress leading or trailing zeros in an address.”
@@ -502,7 +499,7 @@ fn asIpLiteral(p: *Parts, s: []const u8, start: usize) ParseError!void {
     var i = start + 1;
     if (i >= s.len) return ParseError.IllegalAddress;
     switch (s[i]) {
-        'v' => return asIpFuture(p, s, start),
+        'v' => return asIpFuture(v, s, start),
         ':' => {
             if (i + 1 >= s.len or s[i + 1] != ':')
                 return ParseError.IllegalAddress;
@@ -533,7 +530,7 @@ fn asIpLiteral(p: *Parts, s: []const u8, start: usize) ParseError!void {
         ']' => {
             if (!zeroes_once and h16n != 8 or zeroes_once and h16n > 7)
                 return ParseError.IllegalAddress;
-            return ipLiteralEnd(p, s, i);
+            return ipLiteralEnd(v, s, i);
         },
 
         '.' => {
@@ -549,7 +546,7 @@ fn asIpLiteral(p: *Parts, s: []const u8, start: usize) ParseError!void {
             if (h16n < 2 or !zeroes_once and h16n != 6 + 1 or zeroes_once and h16n > 5 + 1)
                 return ParseError.IllegalAddress;
 
-            return Ip4inIp6Continue(p, s, i - hexn);
+            return Ip4inIp6Continue(v, s, i - hexn);
         },
 
         // escaped percent ("%") character ("%25") separates zone identifier
@@ -570,7 +567,7 @@ fn asIpLiteral(p: *Parts, s: []const u8, start: usize) ParseError!void {
                 },
                 ']' => {
                     if (i <= zone_start) return ParseError.IllegalAddress;
-                    return ipLiteralEnd(p, s, i);
+                    return ipLiteralEnd(v, s, i);
                 },
                 inline else => return ParseError.IllegalAddress,
             };
@@ -583,7 +580,7 @@ fn asIpLiteral(p: *Parts, s: []const u8, start: usize) ParseError!void {
 }
 
 // AsIpFuture parses authority s since "[v" at start.
-fn asIpFuture(p: *Parts, s: []const u8, start: usize) ParseError!void {
+fn asIpFuture(v: *View, s: []const u8, start: usize) ParseError!void {
     // match IPvFuture from RFC 3986, subsection 3.2.2
     if (start + 4 > s.len or s[start + 3] != '.') return ParseError.IllegalAddress;
     switch (s[start + 2]) {
@@ -600,14 +597,14 @@ fn asIpFuture(p: *Parts, s: []const u8, start: usize) ParseError!void {
         ':' => continue,
         ']' => {
             if (i < start + 5) return ParseError.IllegalAddress;
-            return ipLiteralEnd(p, s, i);
+            return ipLiteralEnd(v, s, i);
         },
         inline else => return ParseError.IllegalAddress,
     };
     return ParseError.IllegalAddress; // not closed with "]"
 }
 
-fn Ip4inIp6Continue(p: *Parts, s: []const u8, start: usize) ParseError!void {
+fn Ip4inIp6Continue(v: *View, s: []const u8, start: usize) ParseError!void {
     var i = start;
     var octn: usize = 1; // octet count (need 4)
     var decn: usize = 0; // decimal count (max 3)
@@ -618,20 +615,20 @@ fn Ip4inIp6Continue(p: *Parts, s: []const u8, start: usize) ParseError!void {
             decn += 1;
         },
         '.' => {
-            var v = std.fmt.parseInt(u8, s[i - decn .. i], 10) catch
+            _ = std.fmt.parseInt(u8, s[i - decn .. i], 10) catch
                 return ParseError.IllegalAddress;
-            if (decn == 0 or s[i - decn] == '0' or v == 0)
+            if (decn == 0 or s[i - decn] == '0')
                 return ParseError.IllegalAddress;
             octn += 1;
             decn = 0;
         },
         ']' => {
-            var v = std.fmt.parseInt(u8, s[i - decn .. i], 10) catch
+            _ = std.fmt.parseInt(u8, s[i - decn .. i], 10) catch
                 return ParseError.IllegalAddress;
-            if (decn == 0 or octn != 4 or s[i - decn] == '0' or v == 0)
+            if (decn == 0 or octn != 4 or s[i - decn] == '0')
                 return ParseError.IllegalAddress;
 
-            return ipLiteralEnd(p, s, i);
+            return ipLiteralEnd(v, s, i);
         },
         inline else => return ParseError.IllegalAddress,
     };
@@ -639,26 +636,26 @@ fn Ip4inIp6Continue(p: *Parts, s: []const u8, start: usize) ParseError!void {
 }
 
 // ipLiteralEnd continues from end "]" in authority s.
-fn ipLiteralEnd(p: *Parts, s: []const u8, end: usize) ParseError!void {
+fn ipLiteralEnd(v: *View, s: []const u8, end: usize) ParseError!void {
     var i = end + 1;
-    p.raw_host = s[2 + p.raw_userinfo.len .. i];
+    v.raw_host = s[2 + v.raw_userinfo.len .. i];
     if (i >= s.len) {
-        p.raw_authority = s;
+        v.raw_authority = s;
         return;
     }
 
     switch (s[i]) {
         '/' => {
-            p.raw_authority = s[0..i];
-            return pathContinue(p, s[i..]);
+            v.raw_authority = s[0..i];
+            return pathContinue(v, s[i..]);
         },
         '?' => {
-            p.raw_authority = s[0..i];
-            return queryContinue(p, s[i..]);
+            v.raw_authority = s[0..i];
+            return queryContinue(v, s[i..]);
         },
         '#' => {
-            p.raw_authority = s[0..i];
-            return fragmentContinue(p, s[i..]);
+            v.raw_authority = s[0..i];
+            return fragmentContinue(v, s[i..]);
         },
 
         ':' => {
@@ -670,19 +667,19 @@ fn ipLiteralEnd(p: *Parts, s: []const u8, end: usize) ParseError!void {
                 '0'...'9' => continue,
 
                 '/' => {
-                    p.raw_authority = s[0..i];
-                    p.raw_port = s[port_start..i];
-                    return pathContinue(p, s[i..]);
+                    v.raw_authority = s[0..i];
+                    v.raw_port = s[port_start..i];
+                    return pathContinue(v, s[i..]);
                 },
                 '?' => {
-                    p.raw_authority = s[0..i];
-                    p.raw_port = s[port_start..i];
-                    return queryContinue(p, s[i..]);
+                    v.raw_authority = s[0..i];
+                    v.raw_port = s[port_start..i];
+                    return queryContinue(v, s[i..]);
                 },
                 '#' => {
-                    p.raw_authority = s[0..i];
-                    p.raw_port = s[port_start..i];
-                    return fragmentContinue(p, s[i..]);
+                    v.raw_authority = s[0..i];
+                    v.raw_port = s[port_start..i];
+                    return fragmentContinue(v, s[i..]);
                 },
 
                 else => return ParseError.PortNotNumber,
@@ -694,7 +691,7 @@ fn ipLiteralEnd(p: *Parts, s: []const u8, end: usize) ParseError!void {
 }
 
 // PathContinue parses s as the path component.
-fn pathContinue(p: *Parts, s: []const u8) ParseError!void {
+fn pathContinue(v: *View, s: []const u8) ParseError!void {
     // match path from RFC 3986, subsection 3.3 with a jump table
     var i: usize = 0;
     while (i < s.len) switch (s[i]) {
@@ -710,16 +707,16 @@ fn pathContinue(p: *Parts, s: []const u8) ParseError!void {
             i += 3;
         },
         '?' => {
-            p.raw_path = s[0..i];
-            return queryContinue(p, s[i..]);
+            v.raw_path = s[0..i];
+            return queryContinue(v, s[i..]);
         },
         '#' => {
-            p.raw_path = s[0..i];
-            return fragmentContinue(p, s[i..]);
+            v.raw_path = s[0..i];
+            return fragmentContinue(v, s[i..]);
         },
         inline else => return ParseError.IllegalCharacter,
     };
-    p.raw_path = s;
+    v.raw_path = s;
 }
 
 // QueryContinue parses s after "?".
@@ -727,7 +724,7 @@ fn pathContinue(p: *Parts, s: []const u8) ParseError!void {
 // “The query component is indicated by the first question mark ("?")
 // character and terminated by a number sign ("#") character or by the end
 // of the URI.”
-fn queryContinue(p: *Parts, s: []const u8) ParseError!void {
+fn queryContinue(v: *View, s: []const u8) ParseError!void {
     // match query from RFC 3986, subsection 3.4 with a jump table
     var i: usize = 1;
     while (i < s.len) switch (s[i]) {
@@ -743,19 +740,19 @@ fn queryContinue(p: *Parts, s: []const u8) ParseError!void {
             i += 3;
         },
         '#' => {
-            p.raw_query = s[0..i];
-            return fragmentContinue(p, s[i..]);
+            v.raw_query = s[0..i];
+            return fragmentContinue(v, s[i..]);
         },
         inline else => return ParseError.IllegalCharacter,
     };
-    p.raw_query = s;
+    v.raw_query = s;
 }
 
 // FragmentContinue parses s after "#".
 //
 // “A fragment identifier component is indicated by the presence of a
 // number sign ("#") character and terminated by the end of the URI.”
-fn fragmentContinue(p: *Parts, s: []const u8) ParseError!void {
+fn fragmentContinue(v: *View, s: []const u8) ParseError!void {
     // match fragment from RFC 3986, subsection 3.5 with a jump table
     var i: usize = 1;
     while (i < s.len) switch (s[i]) {
@@ -772,7 +769,7 @@ fn fragmentContinue(p: *Parts, s: []const u8) ParseError!void {
         },
         inline else => return ParseError.IllegalCharacter,
     };
-    p.raw_fragment = s;
+    v.raw_fragment = s;
 }
 
 // Unescape resolves percent-encodings.
@@ -1234,11 +1231,11 @@ fn buildUrnCharSizes() [256]u2 {
 }
 
 /// NewUrn returns either a valid URN/URI or the empty string when specifics is
-/// empty. An upper-case prefix ("URN:") is used if and only namespace contains
-/// upper-case letters exclusively. The escape_set opts in percent-encoding for
-/// octets in the specifics string which would otherwise get included as is,
-/// namely 'A'–'Z', 'a'–'z', '0'–'9', '(', ')', '+', ',', '-', '.', ':', '=',
-/// '@', ';', '$', '_', '!', '*', and '\''.
+/// empty. An upper-case scheme "URN:" is used if and only if namespace contains
+/// upper-case letters and if it contains no lower-case letters. The escape_set
+/// opts in percent-encoding for octets in the specifics string which would
+/// otherwise get included as is, namely 'A'–'Z', 'a'–'z', '0'–'9', '(', ')',
+/// '+', ',', '-', '.', ':', '=', '@', ';', '$', '_', '!', '*', and '\''.
 pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime escape_set: []const u8, m: Allocator) error{OutOfMemory}![]u8 {
     // compile-time validation
     const prefix = comptime urnPrefixFromNamespaceCheck(namespace);
