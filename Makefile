@@ -1,5 +1,12 @@
 .PHONY: test
-test: zuri.out
+test: urview.out urlink.out
+
+urview.out: urview.zig
+	zig test $? | tee $@
+
+urlink.out: urlink.zig
+	zig test $? | tee $@
+
 
 .PHONY: bench
 bench: zig-out
@@ -7,23 +14,22 @@ bench: zig-out
 	$?/bin/bench
 	$?/bin/bench
 
-zuri.out: zuri.zig
-	zig test $? | tee $@
-
 
 .PHONY: fmt
-fmt: build.zig zuri.zig fuzz-params.zig fuzz-parse.zig fuzz-urn.zig bench.zig
+fmt: build.zig urview.zig urlink.zig fuzz-params.zig fuzz-parse.zig fuzz-urn.zig bench.zig
 	zig $@ $?
 
-doc: zuri.zig
-	rm -fr doc
+urview-doc: urview.zig
 	zig build-lib -fno-emit-bin -femit-docs=$@ $?
 
-bench.asm: zuri.zig bench.zig
+urlink-doc: urview.zig
+	zig build-lib -fno-emit-bin -femit-docs=$@ $?
+
+bench.asm: urview.zig urlink.zig bench.zig
 	zig build-exe -O ReleaseFast -femit-asm=$@ -fno-emit-bin -fstrip bench.zig
 
 
-zig-out: build.zig zuri.zig fuzz-params.zig fuzz-parse.zig fuzz-urn.zig bench.zig
+zig-out: build.zig urview.zig urlink.zig fuzz-params.zig fuzz-parse.zig fuzz-urn.zig bench.zig
 	zig build
 
 
@@ -43,7 +49,7 @@ fuzz-urn-console: zig-out
 
 
 .PHONY: dist
-dist: test fmt doc zig-out test-samples
+dist: test fmt zig-out test-samples urview-doc urlink-doc
 
 # TODO(pascaldekloe): Replace in build.zig pending
 # <https://github.com/ziglang/zig/issues/16866>.
@@ -56,5 +62,5 @@ test-samples: zig-out/bin/fuzz-parse
 .PHONY: clean
 clean:
 	rm -fr zig-cache zig-out
-	rm -fr doc
+	rm -fr urview-doc urlink-doc
 	rm -f *.out *.asm

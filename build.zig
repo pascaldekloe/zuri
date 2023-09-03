@@ -15,34 +15,42 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    const lib = b.addStaticLibrary(.{
-        .name = "zuri",
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
-        .root_source_file = .{ .path = "zuri.zig" },
+    const urview = b.addStaticLibrary(.{
+        .name = "urview",
+        .root_source_file = .{ .path = "urview.zig" },
         .target = target,
         .optimize = optimize,
     });
-
-    // This declares intent for the library to be installed into the standard
-    // location when the user invokes the "install" step (the default step when
-    // running `zig build`).
-    b.installArtifact(lib);
+    b.installArtifact(urview);
+    const urlink = b.addStaticLibrary(.{
+        .name = "urlink",
+        .root_source_file = .{ .path = "urlink.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    b.installArtifact(urlink);
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
-    const main_tests = b.addTest(.{
-        .root_source_file = .{ .path = "zuri.zig" },
+    const urview_tests = b.addTest(.{
+        .root_source_file = .{ .path = "urview.zig" },
         .target = target,
         .optimize = optimize,
     });
-    const run_main_tests = b.addRunArtifact(main_tests);
+    const run_urview_tests = b.addRunArtifact(urview_tests);
+    const urlink_tests = b.addTest(.{
+        .root_source_file = .{ .path = "urlink.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    const run_urlink_tests = b.addRunArtifact(urlink_tests);
 
     // This creates a build step. It will be visible in the `zig build --help` menu,
     // and can be selected like this: `zig build test`
     // This will evaluate the `test` step rather than the default, which is "install".
     const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&run_main_tests.step);
+    test_step.dependOn(&run_urview_tests.step);
+    test_step.dependOn(&run_urlink_tests.step);
 
     const params_fuzzer = b.addExecutable(.{
         .name = "fuzz-params",
@@ -50,14 +58,12 @@ pub fn build(b: *std.Build) void {
         .optimize = std.builtin.OptimizeMode.ReleaseSafe,
     });
     b.installArtifact(params_fuzzer);
-
     const parse_fuzzer = b.addExecutable(.{
         .name = "fuzz-parse",
         .root_source_file = .{ .path = "fuzz-parse.zig" },
         .optimize = std.builtin.OptimizeMode.ReleaseSafe,
     });
     b.installArtifact(parse_fuzzer);
-
     const urn_fuzzer = b.addExecutable(.{
         .name = "fuzz-urn",
         .root_source_file = .{ .path = "fuzz-urn.zig" },

@@ -1,7 +1,8 @@
 const std = @import("std");
 const os = std.os;
 
-const zuri = @import("./zuri.zig");
+const urview = @import("./urview.zig");
+const urlink = @import("./urlink.zig");
 
 pub fn main() !void {
     // fetch fuzz input
@@ -13,12 +14,12 @@ pub fn main() !void {
 
     var buf: [256]u8 = undefined;
     var fix = std.heap.FixedBufferAllocator.init(&buf);
-    const urn = zuri.newUrn("test", fuzz_in, "Ol", fix.allocator()) catch {
+    const urn = urlink.newUrn("test", fuzz_in, "Ol", fix.allocator()) catch {
         std.log.err("out of memory on {d} bytes of input with {d} bytes of space", .{ fuzz_in.len, buf.len });
         std.os.exit(137);
     };
 
-    const view = zuri.parse(urn) catch |err| {
+    const view = urview.parse(urn) catch |err| {
         std.log.err("invalid URN result {s}: {}", .{ urn, err });
         std.os.exit(1);
     };

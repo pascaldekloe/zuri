@@ -1,7 +1,9 @@
 const std = @import("std");
 const mem = std.mem;
 const Timer = std.time.Timer;
-const zuri = @import("./zuri.zig");
+
+const urlink = @import("./urlink.zig");
+const urview = @import("./urview.zig");
 
 const stderr = std.io.getStdErr().writer();
 const stdout = std.io.getStdOut().writer();
@@ -16,7 +18,7 @@ pub fn main() !void {
     var bench_host: []const u8 = "";
     var bench_segs: [3][]const u8 = .{ "", "", "" };
     {
-        const view = try zuri.parse(bench_url);
+        const view = try urview.parse(bench_url);
         bench_host = view.raw_host;
         var path = std.mem.splitScalar(u8, view.raw_path[1..], '/');
         if (path.next()) |s| {
@@ -43,7 +45,7 @@ pub fn main() !void {
 
         var n: usize = bench_count;
         while (n != 0) : (n -= 1) {
-            var s = try zuri.newUrl("http", null, bench_host, null, &bench_segs, allocator);
+            var s = try urlink.newUrl("http", null, bench_host, null, &bench_segs, allocator);
             mem.doNotOptimizeAway(s);
             allocator.free(s);
         }
@@ -62,7 +64,7 @@ pub fn main() !void {
 
         var n: usize = bench_count;
         while (n != 0) : (n -= 1) {
-            var s = try zuri.newIp6Url("http", null, bench_addr, null, &bench_segs, allocator);
+            var s = try urlink.newIp6Url("http", null, bench_addr, null, &bench_segs, allocator);
             mem.doNotOptimizeAway(s);
             allocator.free(s);
         }
@@ -81,7 +83,7 @@ pub fn main() !void {
 
         var n: usize = bench_count;
         while (n != 0) : (n -= 1) {
-            var s = try zuri.newUrn("bench", spec, "", allocator);
+            var s = try urlink.newUrn("bench", spec, "", allocator);
             mem.doNotOptimizeAway(s);
             allocator.free(s);
         }
@@ -98,7 +100,7 @@ pub fn main() !void {
 
         var n: usize = bench_count;
         while (n != 0) : (n -= 1) {
-            const view = try zuri.parse(bench_url);
+            const view = try urview.parse(bench_url);
             mem.doNotOptimizeAway(&view);
         }
 

@@ -3,7 +3,7 @@ const ascii = std.ascii;
 const os = std.os;
 const mem = std.mem;
 
-const zuri = @import("./zuri.zig");
+const urview = @import("./urview.zig");
 
 pub fn main() !void {
     // fetch fuzz input
@@ -13,7 +13,7 @@ pub fn main() !void {
     const readn = try stdin.readAll(&readb);
     const fuzz_in: []const u8 = readb[0..readn];
 
-    const view = zuri.parse(fuzz_in) catch return;
+    const view = urview.parse(fuzz_in) catch return;
 
     defer if (fuzzFail) os.exit(1);
 
@@ -32,7 +32,7 @@ fn fail(comptime format: []const u8, args: anytype) void {
 var buf: [1024]u8 = undefined;
 
 // VerifyConstraints checks the claims in field comments from Parts.
-fn verifyConstraints(view: zuri.View, fuzz_in: []const u8) void {
+fn verifyConstraints(view: urview.View, fuzz_in: []const u8) void {
     // lossless mapping
     {
         const components = .{ view.raw_scheme, view.raw_authority, view.raw_path, view.raw_query, view.raw_fragment };
@@ -77,7 +77,7 @@ fn verifyConstraints(view: zuri.View, fuzz_in: []const u8) void {
 }
 
 // VerifyEscapeMatch requires a verifyConstraints pass.
-fn verifyEscapeMatch(view: zuri.View) void {
+fn verifyEscapeMatch(view: urview.View) void {
     var fix = std.heap.FixedBufferAllocator.init(&buf);
     const allocator = fix.allocator();
 

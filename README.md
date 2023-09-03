@@ -14,10 +14,11 @@ This is free and unencumbered software released into the
 
 ## Interface
 
-Run `make doc` to see the full interface documentation at `doc/index.html'.
+The API is split in a parsing `urview.zig`, and a formatting `urlink.zig`.
 
+### urview.zig
 
-### Parse
+Run `make urview-doc` to see the full interface documentation at `urview-doc/index.html'.
 
 ```zig
 /// Parse returns a mapping of s if and only if s is a valid URI.
@@ -63,9 +64,10 @@ fn fragment(v: *const View, m: std.mem.Allocator) error{OutOfMemory}![]u8
 fn hasFragment(v: *const View, match: []const u8) bool
 ```
 
-### Format
 
-URI construction goes by type as each format has its own constraints.
+### urlink.zig
+
+Run `make urlink-doc` to see the full interface documentation at `urlink-doc/index.html'.
 
 ```zig
 /// NewUrl returns a valid URL/URI.
