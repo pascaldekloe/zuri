@@ -63,7 +63,7 @@ pub const View = struct {
             else => @compileError("illegal character in scheme (never matches)"),
         };
         if (match.len == 0 or match[0] < 'a' or match[0] > 'z')
-            @compileError("without letter start (never matches)");
+            @compileError("scheme without letter start (never matches)");
 
         if (match.len + 1 != v.raw_scheme.len) return false;
         inline for (match, 0..) |c, i| {
@@ -419,48 +419,50 @@ fn sinceScheme(v: *View, s: []const u8) ParseError!void {
     var colon_count: usize = 0;
     var last_colon: usize = 0;
 
-    // match authoritiry from RFC 3986, subsection 3.2 with a jump table
-    while (i < s.len) switch (s[i]) {
-        // unreserved
-        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => i += 1,
-        // sub-delims
-        inline '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => i += 1,
-        // userinfo
-        '@' => {
-            if (v.raw_userinfo.len != 0) return ParseError.IllegalCharacter;
+    // • any IPv4address matches reg-name
+    // • any reg-name matches userinfo
+    while (i < s.len) {
+        if (reg_name_chars[s[i]] != 0) {
+            // either userinfo or reg-name; no escape needed
             i += 1;
-            v.raw_userinfo = s[2..i];
-            colon_count = 0; // reset for host count
-        },
-        // either userinfo or port separator or invalid
-        ':' => {
-            colon_count += 1;
-            last_colon = i;
-            i += 1;
-        },
-        '/' => {
-            try authoritySet(v, s[0..i], colon_count, last_colon);
-            return pathContinue(v, s[i..]);
-        },
-        '?' => {
-            try authoritySet(v, s[0..i], colon_count, last_colon);
-            return queryContinue(v, s[i..]);
-        },
-        '#' => {
-            try authoritySet(v, s[0..i], colon_count, last_colon);
-            return fragmentContinue(v, s[i..]);
-        },
-        '[' => {
-            if (i != 2 + v.raw_userinfo.len)
-                return ParseError.IllegalCharacter;
-            return asIpLiteral(v, s, i);
-        },
-        '%' => { // pct-encoded
-            try checkEscape(s, i);
-            i += 3;
-        },
-        inline else => return ParseError.IllegalCharacter,
-    };
+        } else switch (s[i]) {
+            // userinfo
+            '@' => {
+                if (v.raw_userinfo.len != 0) return ParseError.IllegalCharacter;
+                i += 1;
+                v.raw_userinfo = s[2..i];
+                colon_count = 0; // reset for host count
+            },
+            // either userinfo or port separator or invalid
+            ':' => {
+                colon_count += 1;
+                last_colon = i;
+                i += 1;
+            },
+            '/' => {
+                try authoritySet(v, s[0..i], colon_count, last_colon);
+                return pathContinue(v, s[i..]);
+            },
+            '?' => {
+                try authoritySet(v, s[0..i], colon_count, last_colon);
+                return queryContinue(v, s[i..]);
+            },
+            '#' => {
+                try authoritySet(v, s[0..i], colon_count, last_colon);
+                return fragmentContinue(v, s[i..]);
+            },
+            '[' => {
+                if (i != 2 + v.raw_userinfo.len)
+                    return ParseError.IllegalCharacter;
+                return asIpLiteral(v, s, i);
+            },
+            '%' => { // pct-encoded
+                try checkEscape(s, i);
+                i += 3;
+            },
+            else => return ParseError.IllegalCharacter,
+        }
+    }
 
     return authoritySet(v, s, colon_count, last_colon);
 }
@@ -691,28 +693,25 @@ fn ipLiteralEnd(v: *View, s: []const u8, end: usize) ParseError!void {
 fn pathContinue(v: *View, s: []const u8) ParseError!void {
     // match path from RFC 3986, subsection 3.3 with a jump table
     var i: usize = 0;
-    while (i < s.len) switch (s[i]) {
-        // unreserved
-        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => i += 1,
-        // sub-delims
-        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => i += 1,
-        // pchar, slash
-        ':', '@', '/' => i += 1,
-        // pct-encoded
-        '%' => {
-            try checkEscape(s, i);
-            i += 3;
-        },
-        '?' => {
-            v.raw_path = s[0..i];
-            return queryContinue(v, s[i..]);
-        },
-        '#' => {
-            v.raw_path = s[0..i];
-            return fragmentContinue(v, s[i..]);
-        },
-        inline else => return ParseError.IllegalCharacter,
-    };
+    while (i < s.len) {
+        if (path_chars[s[i]] != 0) {
+            i += 1;
+        } else switch (s[i]) {
+            '%' => {
+                try checkEscape(s, i);
+                i += 3;
+            },
+            '?' => {
+                v.raw_path = s[0..i];
+                return queryContinue(v, s[i..]);
+            },
+            '#' => {
+                v.raw_path = s[0..i];
+                return fragmentContinue(v, s[i..]);
+            },
+            inline else => return ParseError.IllegalCharacter,
+        }
+    }
     v.raw_path = s;
 }
 
@@ -724,24 +723,22 @@ fn pathContinue(v: *View, s: []const u8) ParseError!void {
 fn queryContinue(v: *View, s: []const u8) ParseError!void {
     // match query from RFC 3986, subsection 3.4 with a jump table
     var i: usize = 1;
-    while (i < s.len) switch (s[i]) {
-        // unreserved
-        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => i += 1,
-        // sub-delims
-        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => i += 1,
-        // pchar & query
-        ':', '@', '/', '?' => i += 1,
-        // pct-encoded
-        '%' => {
-            try checkEscape(s, i);
-            i += 3;
-        },
-        '#' => {
-            v.raw_query = s[0..i];
-            return fragmentContinue(v, s[i..]);
-        },
-        inline else => return ParseError.IllegalCharacter,
-    };
+    while (i < s.len) {
+        if (query_chars[s[i]] != 0) {
+            i += 1;
+        } else switch (s[i]) {
+            // pct-encoded
+            '%' => {
+                try checkEscape(s, i);
+                i += 3;
+            },
+            '#' => {
+                v.raw_query = s[0..i];
+                return fragmentContinue(v, s[i..]);
+            },
+            inline else => return ParseError.IllegalCharacter,
+        }
+    }
     v.raw_query = s;
 }
 
@@ -752,20 +749,15 @@ fn queryContinue(v: *View, s: []const u8) ParseError!void {
 fn fragmentContinue(v: *View, s: []const u8) ParseError!void {
     // match fragment from RFC 3986, subsection 3.5 with a jump table
     var i: usize = 1;
-    while (i < s.len) switch (s[i]) {
-        // unreserved
-        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => i += 1,
-        // sub-delims
-        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => i += 1,
-        // pchar & fragment
-        ':', '@', '/', '?' => i += 1,
-        // pct-encoded
-        '%' => {
+    while (i < s.len) {
+        if (fragment_chars[s[i]] != 0) {
+            i += 1;
+        } else {
+            if (s[i] != '%') return ParseError.IllegalCharacter;
             try checkEscape(s, i);
             i += 3;
-        },
-        inline else => return ParseError.IllegalCharacter,
-    };
+        }
+    }
     v.raw_fragment = s;
 }
 
@@ -793,7 +785,7 @@ fn unescape(raw: []const u8, allocator: std.mem.Allocator) error{OutOfMemory}![]
             p[0] = raw[i];
             i += 1;
         } else {
-            p[0] = (hexval(raw[i + 1]) << 4) | hexval(raw[i + 2]);
+            p[0] = (hex_table[raw[i + 1]] << 4) | hex_table[raw[i + 2]];
             i += 3;
         }
     }
@@ -808,17 +800,21 @@ fn unescape(raw: []const u8, allocator: std.mem.Allocator) error{OutOfMemory}![]
 }
 
 fn checkEscape(s: []const u8, i: usize) ParseError!void {
-    if (i + 2 >= s.len or (hexval(s[i + 1]) | hexval(s[i + 2])) & 0xf0 != 0)
+    if (i + 2 >= s.len or (hex_table[s[i + 1]] | hex_table[s[i + 2]]) & 0xf0 != 0)
         return ParseError.BrokenEscape;
 }
 
-fn hexval(c: u8) (u8) {
-    return switch (c) {
+const hex_table: [256]u8 = buildHexTable();
+
+fn buildHexTable() [256]u8 {
+    var table: [256]u8 = undefined;
+    for (0..256) |c| table[c] = switch (c) {
         '0'...'9' => c - '0',
         'a'...'f' => c - 'a' + 10,
         'A'...'F' => c - 'A' + 10,
-        else => 0x10,
+        else => 0xff,
     };
+    return table;
 }
 
 // EqualString returns whether the raw input with any and all of its
@@ -831,11 +827,65 @@ fn equalString(raw: []const u8, match: []const u8) bool {
         i += 1;
 
         if (d == '%' and i + 1 < raw.len) {
-            d = (hexval(raw[i]) << 4) | hexval(raw[i + 1]);
+            d = (hex_table[raw[i]] << 4) | hex_table[raw[i + 1]];
             i += 2;
         }
 
         if (c != d) return false;
     }
     return i >= raw.len; // match all
+}
+
+const reg_name_chars: [256]u1 = buildRegNameChars();
+
+fn buildRegNameChars() [256]u1 {
+    var chars: [256]u1 = undefined;
+    // match reg-name from RFC 3986, subsection 3.2.2
+    for (0..256) |c| chars[c] = switch (c) {
+        // unreserved
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
+        // sub-delims
+        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
+        else => 0,
+    };
+    return chars;
+}
+
+const path_chars: [256]u1 = buildPathChars();
+
+fn buildPathChars() [256]u1 {
+    var chars: [256]u1 = undefined;
+    // match path from RFC 3986, subsection 3.3
+    for (0..256) |c| chars[c] = switch (c) {
+        // unreserved
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
+        // sub-delims
+        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
+        // pchar
+        ':', '@' => 1,
+        // path
+        '/' => 1,
+        else => 0,
+    };
+    return chars;
+}
+
+const query_chars: [256]u1 = buildQueryChars();
+const fragment_chars: [256]u1 = query_chars;
+
+fn buildQueryChars() [256]u1 {
+    var chars: [256]u1 = undefined;
+    // match query from RFC 3986, subsection 3.4
+    for (0..256) |c| chars[c] = switch (c) {
+        // unreserved
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
+        // sub-delims
+        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
+        // pchar
+        ':', '@' => 1,
+        // query
+        '/', '?' => 1,
+        else => 0,
+    };
+    return chars;
 }
