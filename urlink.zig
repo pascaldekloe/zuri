@@ -1,22 +1,11 @@
 //! Strict formatting of URIs.
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const FixedBufferAllocator = std.heap.FixedBufferAllocator;
 
 const expect = std.testing.expect;
 const expectEqualStrings = std.testing.expectEqualStrings;
-
-var host_char_sizes: [256]u2 = buildHostCharSizes();
-
-fn buildHostCharSizes() [256]u2 {
-    var sizes: [256]u2 = undefined;
-    for (0..256) |c| sizes[c] = switch (c) {
-        // unreserved ∪ sub-delims
-        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
-        else => 3,
-    };
-    return sizes;
-}
 
 /// NewUrl returns a valid URL/URI.
 pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []const u8, port: ?u16, path_segs: []const []const u8, m: Allocator) error{OutOfMemory}![]u8 {
@@ -42,7 +31,7 @@ pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []co
     var size = scheme.len + 3;
     if (port) |_| size += 1 + port_decimals.len - port_offset;
     if (userinfo) |u| size += userinfoSize(u);
-    for (hostname) |c| size += host_char_sizes[c];
+    for (hostname) |c| size += reg_name_char_sizes[c];
     size += pathSegsSize(path_segs);
 
     // output + write pointer
@@ -59,12 +48,10 @@ pub fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []co
 
     if (userinfo) |u| writeUserinfo(&p, u);
     for (hostname) |c| {
-        if (host_char_sizes[c] > 1) {
-            percentEncode(&p, c);
-        } else {
+        if (reg_name_char_sizes[c] & 2 == 0) {
             p[0] = c;
             p += 1;
-        }
+        } else percentEncode(&p, c);
     }
     if (port) |_| {
         p[0] = ':';
@@ -313,18 +300,6 @@ fn schemeCheck(comptime scheme: []const u8) void {
     };
 }
 
-var userinfo_char_sizes: [256]u2 = buildUserinfoCharSizes();
-
-fn buildUserinfoCharSizes() [256]u2 {
-    var sizes: [256]u2 = undefined;
-    for (0..256) |c| sizes[c] = switch (c) {
-        // unreserved ∪ sub-delims ∪ colon
-        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':' => 1,
-        else => 3,
-    };
-    return sizes;
-}
-
 fn userinfoSize(s: []const u8) usize {
     var size: usize = 1; // "@"
     for (s) |c| size += userinfo_char_sizes[c];
@@ -333,35 +308,21 @@ fn userinfoSize(s: []const u8) usize {
 
 fn writeUserinfo(p: *[*]u8, s: []const u8) void {
     for (s) |c| {
-        if (userinfo_char_sizes[c] > 1) {
-            percentEncode(p, c);
-        } else {
+        if (userinfo_char_sizes[c] & 2 == 0) {
             p.*[0] = c;
             p.* += 1;
-        }
+        } else percentEncode(p, c);
     }
 
     p.*[0] = '@';
     p.* += 1;
 }
 
-var path_char_sizes: [256]u2 = buildPathCharSizes();
-
-fn buildPathCharSizes() [256]u2 {
-    var sizes: [256]u2 = undefined;
-    for (0..256) |c| sizes[c] = switch (c) {
-        // unreserved ∪ sub-delims ∪ pchar
-        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@' => 1,
-        else => 3,
-    };
-    return sizes;
-}
-
 fn pathSegsSize(segs: []const []const u8) usize {
     var size: usize = 0;
     for (segs) |seg| {
         size += 1; // "/"
-        for (seg) |c| size += path_char_sizes[c];
+        for (seg) |c| size += segment_char_sizes[c];
     }
     return size;
 }
@@ -371,26 +332,12 @@ fn writePathSegs(p: *[*]u8, segs: []const []const u8) void {
         p.*[0] = '/';
         p.* += 1;
         for (seg) |c| {
-            if (path_char_sizes[c] > 1) {
-                percentEncode(p, c);
-            } else {
+            if (segment_char_sizes[c] & 2 == 0) {
                 p.*[0] = c;
                 p.* += 1;
-            }
+            } else percentEncode(p, c);
         }
     }
-}
-
-var urn_char_sizes: [256]u2 = buildUrnCharSizes();
-
-fn buildUrnCharSizes() [256]u2 {
-    var sizes: [256]u2 = undefined;
-    for (0..256) |c| sizes[c] = switch (c) {
-        // unreserved ∪ sub-delims ∪ pchar
-        'A'...'Z', 'a'...'z', '0'...'9', '(', ')', '+', ',', '-', '.', ':', '=', '@', ';', '$', '_', '!', '*', '\'' => 1,
-        else => 3,
-    };
-    return sizes;
 }
 
 /// NewUrn returns either a valid URN/URI or the empty string when specifics is
@@ -417,7 +364,7 @@ pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime es
     for (specifics) |c| {
         size += inline for (escape_set) |o| {
             if (o == c) break 3;
-        } else urn_char_sizes[c];
+        } else nss_char_sizes[c];
     }
 
     // output string + write pointer
@@ -433,12 +380,10 @@ pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime es
                 break;
             }
         } else {
-            if (urn_char_sizes[c] > 1) {
-                percentEncode(&p, c);
-            } else {
+            if (nss_char_sizes[c] & 2 == 0) {
                 p[0] = c;
                 p += 1;
-            }
+            } else percentEncode(&p, c);
         }
     }
 
@@ -538,24 +483,6 @@ test "Params and/or Fragment" {
     try expectEqualStrings("arbitrary?%2B=%2B&%2B#+", try addParamsAndOrFragment("arbitrary", &.{ .{ .key = "+", .value = "+" }, .{ .key = "+" } }, "+", allocator));
 }
 
-var param_char_sizes: [256]u2 = buildParamCharSizes();
-
-fn buildParamCharSizes() [256]u2 {
-    var sizes: [256]u2 = undefined;
-    for (0..256) |c| sizes[c] = switch (c) {
-        // unreserved
-        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
-        // sub-delims − "=&+"
-        inline '!', '$', '\'', '(', ')', '*', ',', ';' => 1,
-        // query
-        inline ':', '@', '/', '?' => 1,
-        // space is mapped to +
-        ' ' => 1,
-        else => 3,
-    };
-    return sizes;
-}
-
 fn paramSize(p: QueryParam) usize {
     var n: usize = 1; // '?' or '&'
     for (p.key) |c| n += param_char_sizes[c];
@@ -571,30 +498,11 @@ fn writeParamValue(p: *[*]u8, s: []const u8) void {
         if (c == ' ') {
             p.*[0] = '+';
             p.* += 1;
-        } else if (param_char_sizes[c] > 1) {
-            percentEncode(p, c);
-        } else {
+        } else if (param_char_sizes[c] & 2 == 0) {
             p.*[0] = c;
             p.* += 1;
-        }
+        } else percentEncode(p, c);
     }
-}
-
-var fragment_char_sizes: [256]u2 = buildFragmentCharSizes();
-
-fn buildFragmentCharSizes() [256]u2 {
-    var sizes: [256]u2 = undefined;
-    // match fragment from RFC 3986, subsection 3.5
-    for (0..256) |c| sizes[c] = switch (c) {
-        // unreserved
-        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
-        // sub-delims
-        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
-        // pchar & fragment
-        ':', '@', '/', '?' => 1,
-        else => 3,
-    };
-    return sizes;
 }
 
 fn fragmentSize(s: []const u8) usize {
@@ -607,12 +515,10 @@ fn writeFragment(p: *[*]u8, s: []const u8) void {
     p.*[0] = '#';
     p.* += 1;
     for (s) |c| {
-        if (fragment_char_sizes[c] > 1) {
-            percentEncode(p, c);
-        } else {
+        if (fragment_char_sizes[c] & 2 == 0) {
             p.*[0] = c;
             p.* += 1;
-        }
+        } else percentEncode(p, c);
     }
 }
 
@@ -623,4 +529,110 @@ inline fn percentEncode(p: *[*]u8, o: u8) void {
     p.*[1] = hex_table[o >> 4];
     p.*[2] = hex_table[o & 15];
     p.* += 3;
+}
+
+const userinfo_char_sizes: [256]u2 = buildUserinfoCharSizes();
+
+fn buildUserinfoCharSizes() [256]u2 {
+    var sizes: [256]u2 = undefined;
+    // match userinfo from RFC 3986, subsection 3.2.1
+    for (0..256) |c| sizes[c] = switch (c) {
+        // unreserved
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
+        // sub-delims
+        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
+        // userinfo
+        ':' => 1,
+        else => 3,
+    };
+    return sizes;
+}
+
+const reg_name_char_sizes: [256]u2 = buildRegNameCharSizes();
+
+fn buildRegNameCharSizes() [256]u2 {
+    var sizes: [256]u2 = undefined;
+    // match reg-name from RFC 3986, subsection 3.2.2
+    for (0..256) |c| sizes[c] = switch (c) {
+        // unreserved
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
+        // sub-delims
+        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
+        else => 3,
+    };
+    return sizes;
+}
+
+const segment_char_sizes: [256]u2 = buildSegmentCharSizes();
+
+fn buildSegmentCharSizes() [256]u2 {
+    var sizes: [256]u2 = undefined;
+    // match segment from RFC 3986, subsection 3.3
+    for (0..256) |c| sizes[c] = switch (c) {
+        // unreserved
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
+        // sub-delims
+        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
+        // pchar
+        ':', '@' => 1,
+        else => 3,
+    };
+    return sizes;
+}
+
+const fragment_char_sizes: [256]u2 = buildFragmentCharSizes();
+
+fn buildFragmentCharSizes() [256]u2 {
+    var sizes: [256]u2 = undefined;
+    // match fragment from RFC 3986, subsection 3.5
+    for (0..256) |c| sizes[c] = switch (c) {
+        // unreserved
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
+        // sub-delims
+        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
+        // pchar
+        ':', '@' => 1,
+        // query
+        '/', '?' => 1,
+        else => 3,
+    };
+    return sizes;
+}
+
+/// namespace-specific string table without reserved
+const nss_char_sizes: [256]u2 = buildNssCharSizes();
+
+fn buildNssCharSizes() [256]u2 {
+    var sizes: [256]u2 = undefined;
+    // match nss from RFC 2141, subsection 2.2, excluding reserved
+    for (0..256) |c| sizes[c] = switch (c) {
+        // upper
+        'A'...'Z' => 1,
+        // lower
+        'a'...'z' => 1,
+        // number
+        '0'...'9' => 1,
+        // other
+        '(', ')', '+', ',', '-', '.', ':', '=', '@', ';', '$', '_', '!', '*', '\'' => 1,
+        else => 3,
+    };
+    return sizes;
+}
+
+const param_char_sizes: [256]u2 = buildParamCharSizes();
+
+fn buildParamCharSizes() [256]u2 {
+    var sizes: [256]u2 = undefined;
+    for (0..256) |c| sizes[c] = switch (c) {
+        // unreserved
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
+        // sub-delims − "=&+"
+        '!', '$', '\'', '(', ')', '*', ',', ';' => 1,
+        // query
+        ':', '@', '/', '?' => 1,
+        // space is mapped to +
+        ' ' => 1,
+        else => 3,
+    };
+    return sizes;
 }
