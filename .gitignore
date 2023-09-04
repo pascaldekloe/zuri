@@ -1,7 +1,6 @@
 zig-cache/
 
-*.out
-*.asm
+build.asm
 
 fuzz-params/
 fuzz-parse/

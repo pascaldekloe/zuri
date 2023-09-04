@@ -1,23 +1,13 @@
 .PHONY: test
-test: urview.out urlink.out
-
-urview.out: urview.zig
-	zig test $? | tee $@
-
-urlink.out: urlink.zig
-	zig test $? | tee $@
-
+test: urview.zig urlink.zig
+	zig test urview.zig
+	zig test urlink.zig
 
 .PHONY: bench
 bench: zig-out
 	$?/bin/bench
 	$?/bin/bench
 	$?/bin/bench
-
-
-.PHONY: fmt
-fmt: build.zig urview.zig urlink.zig fuzz-params.zig fuzz-parse.zig fuzz-urn.zig bench.zig
-	zig $@ $?
 
 urview-doc: urview.zig
 	zig build-lib -fno-emit-bin -femit-docs=$@ $?
@@ -29,7 +19,7 @@ bench.asm: urview.zig urlink.zig bench.zig
 	zig build-exe -O ReleaseFast -femit-asm=$@ -fno-emit-bin -fstrip bench.zig
 
 
-zig-out: build.zig urview.zig urlink.zig fuzz-params.zig fuzz-parse.zig fuzz-urn.zig bench.zig
+zig-out: *.zig
 	zig build
 
 
@@ -48,6 +38,10 @@ fuzz-urn-console: zig-out
 	afl-fuzz -i sample -o fuzz-urn -O -g 0 -G 64 -- $?/bin/fuzz-urn
 
 
+.PHONY: fmt
+fmt: *.zig
+	zig $@ $?
+
 .PHONY: dist
 dist: test fmt zig-out test-samples urview-doc urlink-doc
 
@@ -63,4 +57,4 @@ test-samples: zig-out/bin/fuzz-parse
 clean:
 	rm -fr zig-cache zig-out
 	rm -fr urview-doc urlink-doc
-	rm -f *.out *.asm
+	rm -f bench.asm
