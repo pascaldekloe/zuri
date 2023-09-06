@@ -12,7 +12,7 @@ bench: zig-out
 urview-doc: urview.zig
 	zig build-lib -fno-emit-bin -femit-docs=$@ $?
 
-urlink-doc: urview.zig
+urlink-doc: urlink.zig
 	zig build-lib -fno-emit-bin -femit-docs=$@ $?
 
 bench.asm: urview.zig urlink.zig bench.zig
