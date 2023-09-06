@@ -14,90 +14,130 @@ This is free and unencumbered software released into the
 
 ## Interface
 
-The API is split in a parsing `urview.zig`, and a formatting `urlink.zig`.
+The API is split in a parsing `Urview.zig`, and the formatting `Urlink.zig` and
+`Urname.zig`.
 
-### urview.zig
 
-Run `make urview-doc` to see the full interface documentation at `urview-doc/index.html'.
+### Urview.zig
+
+Run `make Urview-doc` to see the full interface documentation at `Urview-doc/index.html`.
 
 ```zig
 /// Parse returns a mapping of s if and only if s is a valid URI.
-fn parse(s: []const u8) ParseError!View
+fn parse(s: []const u8) ParseError!Urview
 ```
 
-View contains a lossless decomposition with all URI components as is.
+Urview contains a lossless decomposition with all URI components as is.
 
 ```zig
-/// The scheme component ends with ‘:’. It may contain upper-case letters.
+/// The scheme component ends with ":". It may contain upper-case letters.
 raw_scheme: []const u8,
 
-/// The authority component, if any, starts with “//”.
+/// The authority component, if any, starts with "//".
 raw_authority: []const u8 = "",
-
-/// The userinfo component, if any, ends with ‘@’.
+/// The userinfo component, if any, ends with "@".
 raw_userinfo: []const u8 = "",
-
 /// The host component can be a registered name, or an IP address.
 raw_host: []const u8 = "",
-
-/// The port component, if any, starts with ‘:’.
+/// The port component, if any, starts with ":".
 raw_port: []const u8 = "",
 
-/// The path compoment, if any, starts with ‘/’ when (raw_)authority is present.
+/// The path compoment, if any, starts with "/" when (raw_)authority is
+/// present.
 raw_path: []const u8 = "",
 
-/// The query compoment, if any, starts with ‘?’.
+/// The query compoment, if any, starts with "?".
 raw_query: []const u8 = "",
 
-/// The fragment component, if any, starts with ‘#’.
+/// The fragment component, if any, starts with "#".
 raw_fragment: []const u8 = "",
 ```
 
-The components have dedicated methods to resolve and/or compare values.
+Use any of the dedicated methods to resolve and/or compare values.
 
 ```zig
-/// Fragment returns the value with any and all percent-encodings resolved.
-fn fragment(v: *const View, m: std.mem.Allocator) error{OutOfMemory}![]u8
+/// Fragment returns the value with any and all percent-encodings resolved. None
+/// of the applicable standards put any constraints on the byte content. The
+/// return may or may not be a valid UTF-8 string.
+fn fragment(ur: *const Urview, m: Allocator) error{OutOfMemory}![]u8
 
 /// HasFragment returns whether a fragment component is present, and whether
 /// its value with any and all percent-encodings resolved equals match.
-fn hasFragment(v: *const View, match: []const u8) bool
+fn hasFragment(ur: *const Urview, match: []const u8) bool
 ```
 
 
-### urlink.zig
+### Urlink.zig
 
-Run `make urlink-doc` to see the full interface documentation at `urlink-doc/index.html'.
+Run `make Urlink-doc` to see the full interface documentation at `Urlink-doc/index.html`.
 
 ```zig
-/// NewUrl returns a valid URL/URI.
-fn newUrl(comptime scheme: []const u8, userinfo: ?[]const u8, hostname: []const u8, port: ?u16, path_segs: []const []const u8, m: Allocator) error{OutOfMemory}![]u8
+/// NewUrl returns a valid URL/URI. Caller owns the memory.
+fn newUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![]u8
+
+/// NewSearchUrl is like newUrl, yet it encodes query parameters conform the
+/// application/x-www-form-urlencoded convention, i.e., space characters (" ")
+/// are written as plus characters ("+") rather than percent encoding "%20". Use
+/// is intended for the "http", "https", "ws" and "wss" schemes.
+fn newSearchUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![]u8
 ```
+
+Urlink contains components for URL construction.
+
+```zig
+userinfo: ?[]const u8 = null,
+
+/// Host is either a registered name or an IPv4 address. Use newIp6Url for IPv6
+/// addresses.
+host: []const u8 = "",
+
+/// The default port number for the respective protocol should be omitted, i.e.,
+/// specify non-standard values only.
+port: ?u16 = null,
+
+/// Path segments are separated by a slash character ("/"), including a leading
+/// one [root]. Put an empty string last for a tailing slash.
+segments: []const []const u8 = &[0][]u8{},
+
+/// Parameters append to the query component in order of appearance, in the form
+/// of: key ?( "=" value ) *( "&" key ?( "=" value ))
+params: []const Param = &.{},
+
+fragment: ?[]const u8 = null,
+```
+
+
+### Urname.zig
+
+Run `make Urname-doc` to see the full interface documentation at `Urname-doc/index.html`.
 
 ```zig
 /// NewUrn returns either a valid URN/URI or the empty string when specifics is
 /// empty. An upper-case scheme "URN:" is used if and only if namespace contains
 /// upper-case letters and if it contains no lower-case letters. The escape_set
 /// opts in percent-encoding for octets in the specifics string which would
-/// otherwise get included as is, namely 'A'–'Z', 'a'–'z', '0'–'9', '(', ')',
-/// '+', ',', '-', '.', ':', '=', '@', ';', '$', '_', '!', '*', and '\''.
-pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime escape_set: []const u8, m: Allocator) error{OutOfMemory}![]u8
+/// otherwise get included as is, namely "A"–"Z", "a"–"z", "0"–"9", "(", ")",
+/// "+", ",", "-", ".", ":", "=", "@", ";", "$", "_", "!", "*", and "'".
+fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime escape_set: []const u8, m: Allocator) error{OutOfMemory}![]u8
+
+/// NewUri returns a valid URI. Caller owns the memory.
+fn newUri(ur: *const Urname, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![]u8
 ```
 
-```zig
-pub const QueryParam = struct {
-    key: []const u8,
-    value: ?[]const u8 = null,
-};
+Urname contains components for opaque URI construction.
 
-/// AddParamsAndOrFragment returns a new URI with the query parameters and/or a
-/// fragment appended to the input URI. Caller owns the result.
-///
-/// When params is not empty, then a query component is added conform the
-/// defacto application/x-www-form-urlencoded standard. Note that spaces are
-/// replaced by a plus ("+") character. The equals ("=") character is omitted
-/// when a value is null.
-pub fn addParamsAndOrFragment(uri: []const u8, params: []const QueryParam, fragment: ?[]const u8, m: Allocator) error{OutOfMemory}![]u8
+```zig
+separator: u8 = ':',
+
+/// The opaque path consists of segments separated by a separator. Any separator
+/// occurences in the segements escape with percent-encoding.
+segments: []const []const u8 = &[0][]u8{},
+
+/// Parameters append to the query component in order of appearance, in the form
+/// of: key ?( "=" value ) *( "&" key ?( "=" value ))
+params: []const Param = &.{},
+
+fragment: ?[]const u8 = null,
 ```
 
 

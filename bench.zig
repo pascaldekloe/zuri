@@ -2,8 +2,9 @@ const std = @import("std");
 const mem = std.mem;
 const Timer = std.time.Timer;
 
-const urlink = @import("./urlink.zig");
-const urview = @import("./urview.zig");
+const Urlink = @import("./Urlink.zig");
+const Urname = @import("./Urname.zig");
+const Urview = @import("./Urview.zig");
 
 const stderr = std.io.getStdErr().writer();
 const stdout = std.io.getStdOut().writer();
@@ -13,23 +14,20 @@ const bench_count = 500_000; // number of iterations
 
 pub fn main() !void {
     var sample_buf: [128]u8 = undefined;
-    const bench_url = loadSampleUrl(&sample_buf);
+    const sample_url = loadSampleUrl(&sample_buf);
+    const sample = try Urview.parse(sample_url);
 
-    var bench_host: []const u8 = "";
-    var bench_segs: [3][]const u8 = .{ "", "", "" };
+    // TODO(pascaldekloe): Need an API for path segment extraction.
+    var sample_segs: [3][]const u8 = .{ "", "", "" };
     {
-        const view = try urview.parse(bench_url);
-        bench_host = view.raw_host;
-        var path = std.mem.splitScalar(u8, view.raw_path[1..], '/');
-        if (path.next()) |s| {
-            bench_segs[0] = s;
+        if (sample.raw_path.len == 0) {
+            try stderr.print("path absent in sample {s}\n", .{sample_url});
+            std.os.exit(1);
         }
-        if (path.next()) |s| {
-            bench_segs[1] = s;
-        }
-        if (path.next()) |s| {
-            bench_segs[2] = s;
-        }
+        var path = std.mem.splitScalar(u8, sample.raw_path[1..], '/');
+        if (path.next()) |s| sample_segs[0] = s;
+        if (path.next()) |s| sample_segs[1] = s;
+        if (path.next()) |s| sample_segs[2] = s;
     }
 
     // fast allocator to minimize benchmark influence
@@ -39,15 +37,15 @@ pub fn main() !void {
 
     var timer = try Timer.start();
     {
-        try report.print("benchmark newUrl with host {s} and path {s}\n", .{ bench_host, bench_segs });
-
         const start = timer.lap();
 
         var n: usize = bench_count;
         while (n != 0) : (n -= 1) {
-            var s = try urlink.newUrl("http", null, bench_host, null, &bench_segs, allocator);
-            mem.doNotOptimizeAway(s);
-            allocator.free(s);
+            const ur: Urlink = .{ .host = sample.raw_host, .segments = sample_segs[0..] };
+            const url = try ur.newUrl("http", allocator);
+            std.mem.doNotOptimizeAway(url);
+            if (n == sample.raw_host.len) try report.print("benchmark newUrl does {s}.\n", .{url});
+            allocator.free(url);
         }
 
         const end = timer.read();
@@ -56,17 +54,19 @@ pub fn main() !void {
 
     timer.reset();
     {
+        // test content from arbitrary data
         var bench_addr: [16]u8 = undefined;
-        @memcpy(&bench_addr, bench_url[0..16]);
-        try report.print("benchmark newIp6Url with address {d} and path {s}\n", .{ bench_addr, bench_segs });
+        @memcpy(&bench_addr, sample_url[0..16]);
 
         const start = timer.lap();
 
         var n: usize = bench_count;
         while (n != 0) : (n -= 1) {
-            var s = try urlink.newIp6Url("http", null, bench_addr, null, &bench_segs, allocator);
-            mem.doNotOptimizeAway(s);
-            allocator.free(s);
+            const ur: Urlink = .{ .segments = sample_segs[0..] };
+            const url = try ur.newIp6Url("http", bench_addr, allocator);
+            mem.doNotOptimizeAway(url);
+            if (n == sample.raw_host.len) try report.print("benchmark newIp6Url does {s}.\n", .{url});
+            allocator.free(url);
         }
 
         const end = timer.read();
@@ -75,17 +75,17 @@ pub fn main() !void {
 
     timer.reset();
     {
-        // arbitrary content with one escape (of "#")
-        var spec = bench_url[20..];
-        try report.print("benchmark newUrn with namespace specific part {s}\n", .{spec});
+        // test content with three escapes
+        const bench_spec = sample_url[20..];
 
         const start = timer.lap();
 
         var n: usize = bench_count;
         while (n != 0) : (n -= 1) {
-            var s = try urlink.newUrn("bench", spec, "", allocator);
-            mem.doNotOptimizeAway(s);
-            allocator.free(s);
+            const urn = try Urname.newUrn("bench", bench_spec, "", allocator);
+            mem.doNotOptimizeAway(urn);
+            if (n == sample.raw_host.len) try report.print("benchmark newUrn does {s}.\n", .{urn});
+            allocator.free(urn);
         }
 
         const end = timer.read();
@@ -94,14 +94,13 @@ pub fn main() !void {
 
     timer.reset();
     {
-        try report.print("benchmark parse with {s}\n", .{bench_url});
-
         const start = timer.lap();
 
         var n: usize = bench_count;
         while (n != 0) : (n -= 1) {
-            const view = try urview.parse(bench_url);
-            mem.doNotOptimizeAway(&view);
+            const ur = try Urview.parse(sample_url);
+            if (n == sample.raw_host.len) try report.print("benchmark parse does {s}{s}{s}{s}{s}.\n", .{ ur.raw_scheme, ur.raw_authority, ur.raw_path, ur.raw_query, ur.raw_fragment });
+            mem.doNotOptimizeAway(&ur);
         }
 
         const end = timer.read();
@@ -112,14 +111,14 @@ pub fn main() !void {
 // Load test data from filesystem to prevent the compiler from getting clever.
 fn loadSampleUrl(sample_buf: *[128]u8) []const u8 {
     var path_buf: [1024]u8 = undefined;
-    var wd = std.os.getcwd(&path_buf) catch |err| {
+    const wd = std.os.getcwd(&path_buf) catch |err| {
         stderr.print("working directory unavailable: {}", .{err}) catch {};
         std.os.exit(255);
     };
 
     const loc = "/sample/semantic";
     @memcpy(path_buf[wd.len..].ptr, loc);
-    var path = path_buf[0 .. wd.len + loc.len];
+    const path = path_buf[0 .. wd.len + loc.len];
     var file = std.fs.openFileAbsolute(path, .{}) catch |err| {
         stderr.print("path {s} unavailable: {}", .{ path, err }) catch {};
         std.os.exit(255);

@@ -1,8 +1,9 @@
-//! Strict parsing of URIs.
+//! Strict readings of URIs.
 
 const std = @import("std");
 const parseInt = std.fmt.parseInt;
 const Allocator = std.mem.Allocator;
+
 const test_allocator = std.testing.allocator;
 const failing_allocator = std.testing.failing_allocator;
 const expect = std.testing.expect;
@@ -12,143 +13,150 @@ const expectEqualStrings = std.testing.expectEqualStrings;
 const expectStringEndsWith = std.testing.expectStringEndsWith;
 const expectStringStartsWith = std.testing.expectStringStartsWith;
 
-/// View contains a lossless decomposition with all URI components as is. Use
+/// Urview contains a lossless decomposition with all URI components as is. Use
 /// parse to obtain a valid instance. The input string equals the concatenation
 /// of raw_scheme, raw_authority, raw_path, raw_query and raw_fragment.
-pub const View = struct {
-    /// The scheme component ends with ':'. It may contain upper-case letters.
-    raw_scheme: []const u8,
+const Urview = @This();
 
-    /// The authority component, if any, starts with "//".
-    raw_authority: []const u8 = "",
-    /// The userinfo component, if any, ends with '@'.
-    raw_userinfo: []const u8 = "",
-    /// The host component can be a registered name, or an IP address.
-    raw_host: []const u8 = "",
-    /// The port component, if any, starts with ':'.
-    raw_port: []const u8 = "",
+/// The scheme component ends with ":". It may contain upper-case letters.
+raw_scheme: []const u8,
 
-    /// The path compoment, if any, starts with '/' when (raw_)authority is
-    /// present.
-    raw_path: []const u8 = "",
+/// The authority component, if any, starts with "//".
+raw_authority: []const u8 = "",
+/// The userinfo component, if any, ends with "@".
+raw_userinfo: []const u8 = "",
+/// The host component can be a registered name, or an IP address.
+raw_host: []const u8 = "",
+/// The port component, if any, starts with ":".
+raw_port: []const u8 = "",
 
-    /// The query compoment, if any, starts with '?'.
-    raw_query: []const u8 = "",
+/// The path compoment, if any, starts with "/" when (raw_)authority is
+/// present.
+raw_path: []const u8 = "",
 
-    /// The fragment component, if any, starts with '#'.
-    raw_fragment: []const u8 = "",
+/// The query compoment, if any, starts with "?".
+raw_query: []const u8 = "",
 
-    /// Scheme returns the value normalized to lower-case.
-    pub fn scheme(v: *const View, m: Allocator) error{OutOfMemory}![]u8 {
-        if (v.raw_scheme.len < 2) return "";
-        const s = v.raw_scheme[0 .. v.raw_scheme.len - 1];
+/// The fragment component, if any, starts with "#".
+raw_fragment: []const u8 = "",
 
-        var b = try m.alloc(u8, s.len);
-        for (s, 0..) |c, i| {
-            if (c < 'A' or c > 'Z') {
-                b[i] = c;
-            } else {
-                b[i] = c + ('a' - 'A');
-            }
+/// Scheme returns the value normalized to lower-case.
+pub fn scheme(ur: *const Urview, m: Allocator) error{OutOfMemory}![]u8 {
+    if (ur.raw_scheme.len < 2) return "";
+    const s = ur.raw_scheme[0 .. ur.raw_scheme.len - 1];
+
+    var b = try m.alloc(u8, s.len);
+    for (s, 0..) |c, i| {
+        if (c < 'A' or c > 'Z') {
+            b[i] = c;
+        } else {
+            b[i] = c + ('a' - 'A');
         }
-        return b;
     }
+    return b;
+}
 
-    /// HasScheme returns whether the value normalized to lower-case equals match.
-    pub fn hasScheme(v: *const View, comptime match: []const u8) bool {
-        // compile-time validation of match
-        inline for (match) |c| switch (c) {
-            'a'...'z', '0'...'9', '+', '-', '.' => continue,
-            'A'...'Z' => @compileError("upper-case in scheme (never matches)"),
-            else => @compileError("illegal character in scheme (never matches)"),
-        };
-        if (match.len == 0 or match[0] < 'a' or match[0] > 'z')
-            @compileError("scheme without letter start (never matches)");
+/// HasScheme returns whether the value normalized to lower-case equals match.
+pub fn hasScheme(ur: *const Urview, comptime match: []const u8) bool {
+    // compile-time validation of match
+    inline for (match) |c| switch (c) {
+        'a'...'z', '0'...'9', '+', '-', '.' => continue,
+        'A'...'Z' => @compileError("upper-case in scheme (never matches)"),
+        else => @compileError("illegal character in scheme (never matches)"),
+    };
+    if (match.len == 0 or match[0] < 'a' or match[0] > 'z')
+        @compileError("scheme without letter start (never matches)");
 
-        if (match.len + 1 != v.raw_scheme.len) return false;
-        inline for (match, 0..) |c, i| {
-            var r = v.raw_scheme.ptr[i];
-            if (r != c and (c < 'a' or c > 'z' or c - ('a' - 'A') != r))
-                return false;
-        }
-        return true;
+    if (match.len + 1 != ur.raw_scheme.len) return false;
+    inline for (match, 0..) |c, i| {
+        var r = ur.raw_scheme.ptr[i];
+        if (r != c and (c < 'a' or c > 'z' or c - ('a' - 'A') != r))
+            return false;
     }
+    return true;
+}
 
-    /// Userinfo returns the value with any and all of its percent-encodings
-    /// resolved.
-    pub fn userinfo(v: *const View, m: Allocator) error{OutOfMemory}![]u8 {
-        if (v.raw_userinfo.len < 2) return "";
-        return unescape(v.raw_userinfo[0 .. v.raw_userinfo.len - 1], m);
-    }
+/// Userinfo returns the value with any and all of its percent-encodings
+/// resolved. None of the applicable standards put any constraints on the
+/// byte content. The return may or may not be a valid UTF-8 string.
+pub fn userinfo(ur: *const Urview, m: Allocator) error{OutOfMemory}![]u8 {
+    if (ur.raw_userinfo.len < 2) return "";
+    return unescape(ur.raw_userinfo[0 .. ur.raw_userinfo.len - 1], m);
+}
 
-    /// HasUserinfo returns whether the userinfo component is present, and
-    /// whether its value with any and all of its percent-encodings resolved
-    /// equals match.
-    pub fn hasUserinfo(v: *const View, match: []const u8) bool {
-        if (v.raw_userinfo.len == 0) return false;
-        return equalString(v.raw_userinfo[0 .. v.raw_userinfo.len - 1], match);
-    }
+/// HasUserinfo returns whether the userinfo component is present, and
+/// whether its value with any and all of its percent-encodings resolved
+/// equals match.
+pub fn hasUserinfo(ur: *const Urview, match: []const u8) bool {
+    if (ur.raw_userinfo.len == 0) return false;
+    return equalString(ur.raw_userinfo[0 .. ur.raw_userinfo.len - 1], match);
+}
 
-    /// Host returns the value with any and all of its percent-encodings
-    /// resolved.
-    pub fn host(v: *const View, m: Allocator) error{OutOfMemory}![]u8 {
-        if (v.raw_host.len == 0) return "";
-        return unescape(v.raw_host, m);
-    }
+/// Host returns the value with any and all of its percent-encodings
+/// resolved. None of the applicable standards put any constraints on the
+/// byte content. The return may or may not be a valid UTF-8 string.
+pub fn host(ur: *const Urview, m: Allocator) error{OutOfMemory}![]u8 {
+    if (ur.raw_host.len == 0) return "";
+    return unescape(ur.raw_host, m);
+}
 
-    /// HasHost returns whether the authority component is present, and whether
-    /// the host value with any and all of its percent-encodings resolved equals
-    /// match.
-    pub fn hasHost(v: *const View, match: []const u8) bool {
-        if (v.raw_authority.len == 0) return false;
-        return equalString(v.raw_host, match);
-    }
+/// HasHost returns whether the authority component is present, and whether
+/// the host value with any and all of its percent-encodings resolved equals
+/// match.
+pub fn hasHost(ur: *const Urview, match: []const u8) bool {
+    if (ur.raw_authority.len == 0) return false;
+    return equalString(ur.raw_host, match);
+}
 
-    /// Port returns the value with zero for undefined or out-of-bounds.
-    pub fn port(v: *const View) u16 {
-        if (v.raw_port.len < 2) return 0;
-        return parseInt(u16, v.raw_port[1..], 10) catch 0;
-    }
+/// Port returns the value with zero for undefined or out-of-bounds.
+pub fn port(ur: *const Urview) u16 {
+    if (ur.raw_port.len < 2) return 0;
+    return parseInt(u16, ur.raw_port[1..], 10) catch 0;
+}
 
-    /// Path returns the value with any and all of its percent-encodings
-    /// resolved.
-    pub fn path(v: *const View, m: Allocator) error{OutOfMemory}![]u8 {
-        if (v.raw_path.len == 0) return "";
-        return unescape(v.raw_path, m);
-    }
+/// Path returns the value with any and all of its percent-encodings
+/// resolved. None of the applicable standards put any constraints on the
+/// byte content. The return may or may not be a valid UTF-8 string.
+pub fn path(ur: *const Urview, m: Allocator) error{OutOfMemory}![]u8 {
+    if (ur.raw_path.len == 0) return "";
+    return unescape(ur.raw_path, m);
+}
 
-    /// HasPath returns whether the value with any and all percent-encodings
-    /// resolved equals match.
-    pub fn hasPath(v: *const View, match: []const u8) bool {
-        return equalString(v.raw_path, match);
-    }
+/// HasPath returns whether the value with any and all percent-encodings
+/// resolved equals match.
+pub fn hasPath(ur: *const Urview, match: []const u8) bool {
+    return equalString(ur.raw_path, match);
+}
 
-    /// Query returns the value with any and all percent-encodings resolved.
-    pub fn query(v: *const View, m: Allocator) error{OutOfMemory}![]u8 {
-        if (v.raw_query.len < 2) return "";
-        return unescape(v.raw_query[1..], m);
-    }
+/// Query returns the value with any and all percent-encodings resolved. None of
+/// the applicable standards put any constraints on the byte content. The return
+/// may or may not be a valid UTF-8 string.
+pub fn query(ur: *const Urview, m: Allocator) error{OutOfMemory}![]u8 {
+    if (ur.raw_query.len < 2) return "";
+    return unescape(ur.raw_query[1..], m);
+}
 
-    /// HasQuery returns whether a query component is present, and whether its
-    /// value with any and all percent-encodings resolved equals match.
-    pub fn hasQuery(v: *const View, match: []const u8) bool {
-        if (v.raw_query.len == 0) return false;
-        return equalString(v.raw_query[1..], match);
-    }
+/// HasQuery returns whether a query component is present, and whether its
+/// value with any and all percent-encodings resolved equals match.
+pub fn hasQuery(ur: *const Urview, match: []const u8) bool {
+    if (ur.raw_query.len == 0) return false;
+    return equalString(ur.raw_query[1..], match);
+}
 
-    /// Fragment returns the value with any and all percent-encodings resolved.
-    pub fn fragment(v: *const View, m: Allocator) error{OutOfMemory}![]u8 {
-        if (v.raw_fragment.len < 2) return "";
-        return unescape(v.raw_fragment[1..], m);
-    }
+/// Fragment returns the value with any and all percent-encodings resolved. None
+/// of the applicable standards put any constraints on the byte content. The
+/// return may or may not be a valid UTF-8 string.
+pub fn fragment(ur: *const Urview, m: Allocator) error{OutOfMemory}![]u8 {
+    if (ur.raw_fragment.len < 2) return "";
+    return unescape(ur.raw_fragment[1..], m);
+}
 
-    /// HasFragment returns whether a fragment component is present, and whether
-    /// its value with any and all percent-encodings resolved equals match.
-    pub fn hasFragment(v: *const View, match: []const u8) bool {
-        if (v.raw_fragment.len == 0) return false;
-        return equalString(v.raw_fragment[1..], match);
-    }
-};
+/// HasFragment returns whether a fragment component is present, and whether
+/// its value with any and all percent-encodings resolved equals match.
+pub fn hasFragment(ur: *const Urview, match: []const u8) bool {
+    if (ur.raw_fragment.len == 0) return false;
+    return equalString(ur.raw_fragment[1..], match);
+}
 
 // ParseError tries to be explicity about the source of conflict.
 pub const ParseError = error{
@@ -173,7 +181,7 @@ pub const ParseError = error{
 };
 
 /// Parse returns a mapping of s if and only if s is a valid URI.
-pub fn parse(s: []const u8) ParseError!View {
+pub fn parse(s: []const u8) ParseError!Urview {
     // match scheme from RFC 3986, subsection 3.1
     for (s, 0..) |c, i| switch (c) {
         // ALPHA from RFC 2234, subsection 6.1
@@ -181,9 +189,9 @@ pub fn parse(s: []const u8) ParseError!View {
         // DIGIT from RFC 2234, subsection 6.1
         '0'...'9', '+', '-', '.' => if (i == 0) return ParseError.NoScheme,
         ':' => {
-            var v = View{ .raw_scheme = s[0 .. i + 1] };
-            try sinceScheme(&v, s[i + 1 ..]);
-            return v;
+            var ur = Urview{ .raw_scheme = s[0 .. i + 1] };
+            try sinceScheme(&ur, s[i + 1 ..]);
+            return ur;
         },
         else => return ParseError.NoScheme,
     };
@@ -277,140 +285,140 @@ test "Examples" {
     };
 
     for (samples) |s| {
-        var v = parse(s) catch |err| {
+        const ur = parse(s) catch |err| {
             std.debug.print("got error {} for {s}\n", .{ err, s });
             return err;
         };
 
         // ensure lossless mapping
-        try expectFmt(s, "{s}{s}{s}{s}{s}", .{ v.raw_scheme, v.raw_authority, v.raw_path, v.raw_query, v.raw_fragment });
+        try expectFmt(s, "{s}{s}{s}{s}{s}", .{ ur.raw_scheme, ur.raw_authority, ur.raw_path, ur.raw_query, ur.raw_fragment });
 
         // verify constraints from the field comments
-        try expectStringEndsWith(v.raw_scheme, ":");
-        if (v.raw_authority.len != 0) {
-            try expectFmt(v.raw_authority, "//{s}{s}{s}", .{ v.raw_userinfo, v.raw_host, v.raw_port });
-            if (v.raw_userinfo.len != 0) try expectStringEndsWith(v.raw_userinfo, "@");
-            if (v.raw_port.len != 0) try expectStringStartsWith(v.raw_port, ":");
+        try expectStringEndsWith(ur.raw_scheme, ":");
+        if (ur.raw_authority.len != 0) {
+            try expectFmt(ur.raw_authority, "//{s}{s}{s}", .{ ur.raw_userinfo, ur.raw_host, ur.raw_port });
+            if (ur.raw_userinfo.len != 0) try expectStringEndsWith(ur.raw_userinfo, "@");
+            if (ur.raw_port.len != 0) try expectStringStartsWith(ur.raw_port, ":");
         } else {
             const empty: []const u8 = "";
-            try expectEqual(empty, v.raw_userinfo);
-            try expectEqual(empty, v.raw_host);
-            try expectEqual(empty, v.raw_port);
+            try expectEqual(empty, ur.raw_userinfo);
+            try expectEqual(empty, ur.raw_host);
+            try expectEqual(empty, ur.raw_port);
         }
-        if (v.raw_path.len != 0 and v.raw_authority.len != 0) try expectStringStartsWith(v.raw_path, "/");
-        if (v.raw_query.len != 0) try expectStringStartsWith(v.raw_query, "?");
-        if (v.raw_fragment.len != 0) try expectStringStartsWith(v.raw_fragment, "#");
+        if (ur.raw_path.len != 0 and ur.raw_authority.len != 0) try expectStringStartsWith(ur.raw_path, "/");
+        if (ur.raw_query.len != 0) try expectStringStartsWith(ur.raw_query, "?");
+        if (ur.raw_fragment.len != 0) try expectStringStartsWith(ur.raw_fragment, "#");
     }
 }
 
 test "Upper-Case URN" {
     // sample from “Using ISBNs as URNs” RFC 3187, subsection 3.2
-    var v = try parse("URN:ISBN:0-395-36341-1");
+    const ur = try parse("URN:ISBN:0-395-36341-1");
 
-    try expect(v.hasScheme("urn"));
+    try expect(ur.hasScheme("urn"));
 
-    var scheme = try v.scheme(test_allocator);
-    defer test_allocator.free(scheme);
-    try expectEqualStrings("urn", scheme);
+    const s = try ur.scheme(test_allocator);
+    defer test_allocator.free(s);
+    try expectEqualStrings("urn", s);
 
-    try expect(v.hasPath("ISBN:0-395-36341-1"));
-    try expect(!v.hasPath("isbn:0-395-36341-1"));
+    try expect(ur.hasPath("ISBN:0-395-36341-1"));
+    try expect(!ur.hasPath("isbn:0-395-36341-1"));
 
-    var path = try v.path(test_allocator);
-    defer test_allocator.free(path);
-    try expectEqualStrings("ISBN:0-395-36341-1", path);
+    const p = try ur.path(test_allocator);
+    defer test_allocator.free(p);
+    try expectEqualStrings("ISBN:0-395-36341-1", p);
 }
 
 test "Tricky" {
-    var v = try parse("bang://AD2%5cBill%40live.com@?C:%5cProgram+Files%5C*.EXE");
+    const v = try parse("bang://AD2%5cBill%40live.com@?C:%5cProgram+Files%5C*.EXE");
 
-    var userinfo = try v.userinfo(test_allocator);
-    defer test_allocator.free(userinfo);
-    try expectEqualStrings("AD2\\Bill@live.com", userinfo);
+    const u = try v.userinfo(test_allocator);
+    defer test_allocator.free(u);
+    try expectEqualStrings("AD2\\Bill@live.com", u);
 
-    var query = try v.query(test_allocator);
-    defer test_allocator.free(query);
-    try expectEqualStrings("C:\\Program+Files\\*.EXE", query);
+    const q = try v.query(test_allocator);
+    defer test_allocator.free(q);
+    try expectEqualStrings("C:\\Program+Files\\*.EXE", q);
 }
 
 test "Bloat" {
-    const v = try parse("x-odbc://admin:fe:main@[0::192.168.57.2]:5432/cms?SELECT%20*%20FROM%20users;#80%E2%80%93160");
+    const ur = try parse("x-odbc://admin:fe:main@[0::192.168.57.2]:5432/cms?SELECT%20*%20FROM%20users;#80%E2%80%93160");
 
-    try expectEqualStrings("x-odbc:", v.raw_scheme);
-    try expectEqualStrings("//admin:fe:main@[0::192.168.57.2]:5432", v.raw_authority);
-    try expectEqualStrings("admin:fe:main@", v.raw_userinfo);
-    try expectEqualStrings("[0::192.168.57.2]", v.raw_host);
-    try expectEqualStrings(":5432", v.raw_port);
-    try expectEqualStrings("/cms", v.raw_path);
-    try expectEqualStrings("?SELECT%20*%20FROM%20users;", v.raw_query);
-    try expectEqualStrings("#80%E2%80%93160", v.raw_fragment);
+    try expectEqualStrings("x-odbc:", ur.raw_scheme);
+    try expectEqualStrings("//admin:fe:main@[0::192.168.57.2]:5432", ur.raw_authority);
+    try expectEqualStrings("admin:fe:main@", ur.raw_userinfo);
+    try expectEqualStrings("[0::192.168.57.2]", ur.raw_host);
+    try expectEqualStrings(":5432", ur.raw_port);
+    try expectEqualStrings("/cms", ur.raw_path);
+    try expectEqualStrings("?SELECT%20*%20FROM%20users;", ur.raw_query);
+    try expectEqualStrings("#80%E2%80%93160", ur.raw_fragment);
 
-    try expect(v.hasScheme("x-odbc"));
-    try expect(v.hasUserinfo("admin:fe:main"));
-    try expect(!v.hasUserinfo("admin:fe:main@"));
-    try expect(v.hasHost("[0::192.168.57.2]"));
-    try expect(!v.hasHost("0::192.168.57.2"));
-    try expect(!v.hasHost("192.168.57.2"));
-    try expectEqual(@as(u16, 5432), v.port());
-    try expect(v.hasPath("/cms"));
-    try expect(!v.hasPath("cms"));
-    try expect(v.hasFragment("80–160"));
-    try expect(!v.hasFragment("80%E2%80%93160"));
-    try expect(!v.hasFragment("#80%E2%80%93160"));
+    try expect(ur.hasScheme("x-odbc"));
+    try expect(ur.hasUserinfo("admin:fe:main"));
+    try expect(!ur.hasUserinfo("admin:fe:main@"));
+    try expect(ur.hasHost("[0::192.168.57.2]"));
+    try expect(!ur.hasHost("0::192.168.57.2"));
+    try expect(!ur.hasHost("192.168.57.2"));
+    try expectEqual(@as(u16, 5432), ur.port());
+    try expect(ur.hasPath("/cms"));
+    try expect(!ur.hasPath("cms"));
+    try expect(ur.hasFragment("80–160"));
+    try expect(!ur.hasFragment("80%E2%80%93160"));
+    try expect(!ur.hasFragment("#80%E2%80%93160"));
 
-    var query = try v.query(test_allocator);
-    defer test_allocator.free(query);
-    try expectEqualStrings("SELECT * FROM users;", query);
+    const q = try ur.query(test_allocator);
+    defer test_allocator.free(q);
+    try expectEqualStrings("SELECT * FROM users;", q);
 
-    var fragment = try v.fragment(test_allocator);
-    defer test_allocator.free(fragment);
-    try expectEqualStrings("80–160", fragment);
+    const f = try ur.fragment(test_allocator);
+    defer test_allocator.free(f);
+    try expectEqualStrings("80–160", f);
 }
 
 test "Absent" {
-    const v = try parse("X11:");
+    const ur = try parse("X11:");
 
-    try expect(v.hasScheme("x11"));
-    try expect(!v.hasScheme("ssh"));
-    try expect(!v.hasUserinfo(""));
-    try expect(!v.hasHost(""));
-    try expect(v.port() == 0);
-    try expect(v.hasPath(""));
-    try expect(!v.hasFragment(""));
+    try expect(ur.hasScheme("x11"));
+    try expect(!ur.hasScheme("ssh"));
+    try expect(!ur.hasUserinfo(""));
+    try expect(!ur.hasHost(""));
+    try expect(ur.port() == 0);
+    try expect(ur.hasPath(""));
+    try expect(!ur.hasFragment(""));
 
-    try expectEqualStrings("", try v.path(failing_allocator));
-    try expectEqualStrings("", try v.query(failing_allocator));
-    try expectEqualStrings("", try v.fragment(failing_allocator));
+    try expectEqualStrings("", try ur.path(failing_allocator));
+    try expectEqualStrings("", try ur.query(failing_allocator));
+    try expectEqualStrings("", try ur.fragment(failing_allocator));
 }
 
 test "Empty" {
-    const v = try parse("x-://@:?#");
+    const ur = try parse("x-://@:?#");
 
-    try expect(v.hasScheme("x-"));
-    try expect(!v.hasScheme("x"));
-    try expect(v.hasUserinfo(""));
-    try expect(!v.hasUserinfo("@"));
-    try expect(v.hasHost(""));
-    try expect(!v.hasHost("//"));
-    try expect(v.port() == 0);
-    try expect(v.hasPath(""));
-    try expect(!v.hasPath("/"));
-    try expect(v.hasFragment(""));
-    try expect(!v.hasFragment("#"));
+    try expect(ur.hasScheme("x-"));
+    try expect(!ur.hasScheme("x"));
+    try expect(ur.hasUserinfo(""));
+    try expect(!ur.hasUserinfo("@"));
+    try expect(ur.hasHost(""));
+    try expect(!ur.hasHost("//"));
+    try expect(ur.port() == 0);
+    try expect(ur.hasPath(""));
+    try expect(!ur.hasPath("/"));
+    try expect(ur.hasFragment(""));
+    try expect(!ur.hasFragment("#"));
 
-    try expectEqualStrings("", try v.userinfo(failing_allocator));
-    try expectEqualStrings("", try v.path(failing_allocator));
-    try expectEqualStrings("", try v.query(failing_allocator));
-    try expectEqualStrings("", try v.fragment(failing_allocator));
+    try expectEqualStrings("", try ur.userinfo(failing_allocator));
+    try expectEqualStrings("", try ur.path(failing_allocator));
+    try expectEqualStrings("", try ur.query(failing_allocator));
+    try expectEqualStrings("", try ur.fragment(failing_allocator));
 }
 
 // Parse all components after raw_scheme, which can be none.
-fn sinceScheme(v: *View, s: []const u8) ParseError!void {
+fn sinceScheme(ur: *Urview, s: []const u8) ParseError!void {
     // “The authority component is preceded by a double slash ("//") and is
     // terminated by the next slash ("/"), question mark ("?"), or number
     // sign ("#") character, or by the end of the URI.”
     if (s.len < 2 or s[0] != '/' or s[1] != '/') {
-        return pathContinue(v, s);
+        return pathContinue(ur, s);
     }
     var i: usize = 2;
 
@@ -428,9 +436,9 @@ fn sinceScheme(v: *View, s: []const u8) ParseError!void {
         } else switch (s[i]) {
             // userinfo
             '@' => {
-                if (v.raw_userinfo.len != 0) return ParseError.IllegalCharacter;
+                if (ur.raw_userinfo.len != 0) return ParseError.IllegalCharacter;
                 i += 1;
-                v.raw_userinfo = s[2..i];
+                ur.raw_userinfo = s[2..i];
                 colon_count = 0; // reset for host count
             },
             // either userinfo or port separator or invalid
@@ -440,21 +448,21 @@ fn sinceScheme(v: *View, s: []const u8) ParseError!void {
                 i += 1;
             },
             '/' => {
-                try authoritySet(v, s[0..i], colon_count, last_colon);
-                return pathContinue(v, s[i..]);
+                try authoritySet(ur, s[0..i], colon_count, last_colon);
+                return pathContinue(ur, s[i..]);
             },
             '?' => {
-                try authoritySet(v, s[0..i], colon_count, last_colon);
-                return queryContinue(v, s[i..]);
+                try authoritySet(ur, s[0..i], colon_count, last_colon);
+                return queryContinue(ur, s[i..]);
             },
             '#' => {
-                try authoritySet(v, s[0..i], colon_count, last_colon);
-                return fragmentContinue(v, s[i..]);
+                try authoritySet(ur, s[0..i], colon_count, last_colon);
+                return fragmentContinue(ur, s[i..]);
             },
             '[' => {
-                if (i != 2 + v.raw_userinfo.len)
+                if (i != 2 + ur.raw_userinfo.len)
                     return ParseError.IllegalCharacter;
-                return asIpLiteral(v, s, i);
+                return asIpLiteral(ur, s, i);
             },
             '%' => { // pct-encoded
                 try checkEscape(s, i);
@@ -464,22 +472,22 @@ fn sinceScheme(v: *View, s: []const u8) ParseError!void {
         }
     }
 
-    return authoritySet(v, s, colon_count, last_colon);
+    return authoritySet(ur, s, colon_count, last_colon);
 }
 
-fn authoritySet(v: *View, s: []const u8, colon_count: usize, last_colon: usize) ParseError!void {
-    v.raw_authority = s;
+fn authoritySet(ur: *Urview, s: []const u8, colon_count: usize, last_colon: usize) ParseError!void {
+    ur.raw_authority = s;
 
     switch (colon_count) {
         0 => {
-            v.raw_host = s[2 + v.raw_userinfo.len ..];
+            ur.raw_host = s[2 + ur.raw_userinfo.len ..];
         },
         1 => {
-            v.raw_host = s[2 + v.raw_userinfo.len .. last_colon];
-            v.raw_port = s[last_colon..];
+            ur.raw_host = s[2 + ur.raw_userinfo.len .. last_colon];
+            ur.raw_port = s[last_colon..];
 
             // match port from RFC 3986, subsection 3.2.3
-            for (v.raw_port[1..]) |c|
+            for (ur.raw_port[1..]) |c|
                 if (c < '0' or c > '9')
                     return ParseError.PortNotNumber;
         },
@@ -488,7 +496,7 @@ fn authoritySet(v: *View, s: []const u8, colon_count: usize, last_colon: usize) 
 }
 
 // Parses authority s since "[" at start.
-fn asIpLiteral(v: *View, s: []const u8, start: usize) ParseError!void {
+fn asIpLiteral(ur: *Urview, s: []const u8, start: usize) ParseError!void {
     // “The use of "::" indicates one or more groups of 16 bits of zeros.
     // The "::" can only appear once in an address.  The "::" can also be
     // used to compress leading or trailing zeros in an address.”
@@ -498,7 +506,7 @@ fn asIpLiteral(v: *View, s: []const u8, start: usize) ParseError!void {
     var i = start + 1;
     if (i >= s.len) return ParseError.IllegalAddress;
     switch (s[i]) {
-        'v' => return asIpFuture(v, s, start),
+        'v' => return asIpFuture(ur, s, start),
         ':' => {
             if (i + 1 >= s.len or s[i + 1] != ':')
                 return ParseError.IllegalAddress;
@@ -529,7 +537,7 @@ fn asIpLiteral(v: *View, s: []const u8, start: usize) ParseError!void {
         ']' => {
             if (!zeroes_once and h16n != 8 or zeroes_once and h16n > 7)
                 return ParseError.IllegalAddress;
-            return ipLiteralEnd(v, s, i);
+            return ipLiteralEnd(ur, s, i);
         },
 
         '.' => {
@@ -545,7 +553,7 @@ fn asIpLiteral(v: *View, s: []const u8, start: usize) ParseError!void {
             if (h16n < 2 or !zeroes_once and h16n != 6 + 1 or zeroes_once and h16n > 5 + 1)
                 return ParseError.IllegalAddress;
 
-            return Ip4inIp6Continue(v, s, i - hexn);
+            return Ip4inIp6Continue(ur, s, i - hexn);
         },
 
         // escaped percent ("%") character ("%25") separates zone identifier
@@ -566,7 +574,7 @@ fn asIpLiteral(v: *View, s: []const u8, start: usize) ParseError!void {
                 },
                 ']' => {
                     if (i <= zone_start) return ParseError.IllegalAddress;
-                    return ipLiteralEnd(v, s, i);
+                    return ipLiteralEnd(ur, s, i);
                 },
                 inline else => return ParseError.IllegalAddress,
             };
@@ -579,7 +587,7 @@ fn asIpLiteral(v: *View, s: []const u8, start: usize) ParseError!void {
 }
 
 // AsIpFuture parses authority s since "[v" at start.
-fn asIpFuture(v: *View, s: []const u8, start: usize) ParseError!void {
+fn asIpFuture(ur: *Urview, s: []const u8, start: usize) ParseError!void {
     // match IPvFuture from RFC 3986, subsection 3.2.2
     if (start + 4 > s.len or s[start + 3] != '.') return ParseError.IllegalAddress;
     switch (s[start + 2]) {
@@ -596,14 +604,14 @@ fn asIpFuture(v: *View, s: []const u8, start: usize) ParseError!void {
         ':' => continue,
         ']' => {
             if (i < start + 5) return ParseError.IllegalAddress;
-            return ipLiteralEnd(v, s, i);
+            return ipLiteralEnd(ur, s, i);
         },
         inline else => return ParseError.IllegalAddress,
     };
     return ParseError.IllegalAddress; // not closed with "]"
 }
 
-fn Ip4inIp6Continue(v: *View, s: []const u8, start: usize) ParseError!void {
+fn Ip4inIp6Continue(ur: *Urview, s: []const u8, start: usize) ParseError!void {
     var i = start;
     var octn: usize = 1; // octet count (need 4)
     var decn: usize = 0; // decimal count (max 3)
@@ -627,7 +635,7 @@ fn Ip4inIp6Continue(v: *View, s: []const u8, start: usize) ParseError!void {
             if (decn == 0 or octn != 4 or s[i - decn] == '0')
                 return ParseError.IllegalAddress;
 
-            return ipLiteralEnd(v, s, i);
+            return ipLiteralEnd(ur, s, i);
         },
         inline else => return ParseError.IllegalAddress,
     };
@@ -635,26 +643,26 @@ fn Ip4inIp6Continue(v: *View, s: []const u8, start: usize) ParseError!void {
 }
 
 // ipLiteralEnd continues from end "]" in authority s.
-fn ipLiteralEnd(v: *View, s: []const u8, end: usize) ParseError!void {
+fn ipLiteralEnd(ur: *Urview, s: []const u8, end: usize) ParseError!void {
     var i = end + 1;
-    v.raw_host = s[2 + v.raw_userinfo.len .. i];
+    ur.raw_host = s[2 + ur.raw_userinfo.len .. i];
     if (i >= s.len) {
-        v.raw_authority = s;
+        ur.raw_authority = s;
         return;
     }
 
     switch (s[i]) {
         '/' => {
-            v.raw_authority = s[0..i];
-            return pathContinue(v, s[i..]);
+            ur.raw_authority = s[0..i];
+            return pathContinue(ur, s[i..]);
         },
         '?' => {
-            v.raw_authority = s[0..i];
-            return queryContinue(v, s[i..]);
+            ur.raw_authority = s[0..i];
+            return queryContinue(ur, s[i..]);
         },
         '#' => {
-            v.raw_authority = s[0..i];
-            return fragmentContinue(v, s[i..]);
+            ur.raw_authority = s[0..i];
+            return fragmentContinue(ur, s[i..]);
         },
 
         ':' => {
@@ -666,19 +674,19 @@ fn ipLiteralEnd(v: *View, s: []const u8, end: usize) ParseError!void {
                 '0'...'9' => continue,
 
                 '/' => {
-                    v.raw_authority = s[0..i];
-                    v.raw_port = s[port_start..i];
-                    return pathContinue(v, s[i..]);
+                    ur.raw_authority = s[0..i];
+                    ur.raw_port = s[port_start..i];
+                    return pathContinue(ur, s[i..]);
                 },
                 '?' => {
-                    v.raw_authority = s[0..i];
-                    v.raw_port = s[port_start..i];
-                    return queryContinue(v, s[i..]);
+                    ur.raw_authority = s[0..i];
+                    ur.raw_port = s[port_start..i];
+                    return queryContinue(ur, s[i..]);
                 },
                 '#' => {
-                    v.raw_authority = s[0..i];
-                    v.raw_port = s[port_start..i];
-                    return fragmentContinue(v, s[i..]);
+                    ur.raw_authority = s[0..i];
+                    ur.raw_port = s[port_start..i];
+                    return fragmentContinue(ur, s[i..]);
                 },
 
                 else => return ParseError.PortNotNumber,
@@ -690,7 +698,7 @@ fn ipLiteralEnd(v: *View, s: []const u8, end: usize) ParseError!void {
 }
 
 // PathContinue parses s as the path component.
-fn pathContinue(v: *View, s: []const u8) ParseError!void {
+fn pathContinue(ur: *Urview, s: []const u8) ParseError!void {
     // match path from RFC 3986, subsection 3.3 with a jump table
     var i: usize = 0;
     while (i < s.len) {
@@ -702,17 +710,17 @@ fn pathContinue(v: *View, s: []const u8) ParseError!void {
                 i += 3;
             },
             '?' => {
-                v.raw_path = s[0..i];
-                return queryContinue(v, s[i..]);
+                ur.raw_path = s[0..i];
+                return queryContinue(ur, s[i..]);
             },
             '#' => {
-                v.raw_path = s[0..i];
-                return fragmentContinue(v, s[i..]);
+                ur.raw_path = s[0..i];
+                return fragmentContinue(ur, s[i..]);
             },
             inline else => return ParseError.IllegalCharacter,
         }
     }
-    v.raw_path = s;
+    ur.raw_path = s;
 }
 
 // QueryContinue parses s after "?".
@@ -720,7 +728,7 @@ fn pathContinue(v: *View, s: []const u8) ParseError!void {
 // “The query component is indicated by the first question mark ("?")
 // character and terminated by a number sign ("#") character or by the end
 // of the URI.”
-fn queryContinue(v: *View, s: []const u8) ParseError!void {
+fn queryContinue(ur: *Urview, s: []const u8) ParseError!void {
     // match query from RFC 3986, subsection 3.4 with a jump table
     var i: usize = 1;
     while (i < s.len) {
@@ -733,20 +741,20 @@ fn queryContinue(v: *View, s: []const u8) ParseError!void {
                 i += 3;
             },
             '#' => {
-                v.raw_query = s[0..i];
-                return fragmentContinue(v, s[i..]);
+                ur.raw_query = s[0..i];
+                return fragmentContinue(ur, s[i..]);
             },
             inline else => return ParseError.IllegalCharacter,
         }
     }
-    v.raw_query = s;
+    ur.raw_query = s;
 }
 
 // FragmentContinue parses s after "#".
 //
 // “A fragment identifier component is indicated by the presence of a
 // number sign ("#") character and terminated by the end of the URI.”
-fn fragmentContinue(v: *View, s: []const u8) ParseError!void {
+fn fragmentContinue(ur: *Urview, s: []const u8) ParseError!void {
     // match fragment from RFC 3986, subsection 3.5 with a jump table
     var i: usize = 1;
     while (i < s.len) {
@@ -758,7 +766,7 @@ fn fragmentContinue(v: *View, s: []const u8) ParseError!void {
             i += 3;
         }
     }
-    v.raw_fragment = s;
+    ur.raw_fragment = s;
 }
 
 // Unescape resolves percent-encodings.

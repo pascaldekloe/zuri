@@ -1,8 +1,8 @@
 const std = @import("std");
 const os = std.os;
 
-const urview = @import("./urview.zig");
-const urlink = @import("./urlink.zig");
+const Urview = @import("./Urview.zig");
+const Urname = @import("./Urname.zig");
 
 pub fn main() !void {
     // fetch fuzz input
@@ -12,19 +12,33 @@ pub fn main() !void {
     const readn = try stdin.readAll(&readb);
     const fuzz_in: []const u8 = readb[0..readn];
 
-    var buf: [256]u8 = undefined;
+    var buf: [4 * readb.len + "urn:test:".len + "test:".len]u8 = undefined;
     var fix = std.heap.FixedBufferAllocator.init(&buf);
-    const urn = urlink.newUrn("test", fuzz_in, "Ol", fix.allocator()) catch {
+    var allocator = fix.allocator();
+    const urn = Urname.newUrn("test", fuzz_in, "Ol", allocator) catch {
         std.log.err("out of memory on {d} bytes of input with {d} bytes of space", .{ fuzz_in.len, buf.len });
         std.os.exit(137);
     };
 
-    const view = urview.parse(urn) catch |err| {
+    if (urn.len == 0) {
+        if (fuzz_in.len != 0) {
+            std.log.err("got zero string", .{});
+            std.os.exit(1);
+        }
+        return;
+    }
+
+    const ur = Urview.parse(urn) catch |err| {
         std.log.err("invalid URN result {s}: {}", .{ urn, err });
         std.os.exit(1);
     };
-    if (!view.hasPath(fuzz_in)) {
-        std.log.err("fuzz input does not match path of {s}", .{urn});
+
+    const want = std.mem.concat(allocator, u8, &.{ "test:", fuzz_in }) catch {
+        std.log.err("out of memory on {d} bytes of input with {d} bytes of space", .{ fuzz_in.len, buf.len });
+        std.os.exit(137);
+    };
+    if (!ur.hasPath(want)) {
+        std.log.err("fuzz input does not match path {s}", .{want});
         std.os.exit(1);
     }
 }
