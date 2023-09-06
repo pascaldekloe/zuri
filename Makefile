@@ -52,6 +52,12 @@ test-samples: zig-out/bin/fuzz-parse
 	./zig-out/bin/fuzz-parse < sample/bloat
 	./zig-out/bin/fuzz-parse < sample/empty
 	./zig-out/bin/fuzz-parse < sample/tricky
+	./zig-out/bin/fuzz-parse < /dev/null
+	./zig-out/bin/fuzz-parse < /dev/null
+	./zig-out/bin/fuzz-parse < /dev/null
+	./zig-out/bin/fuzz-parse < /dev/zero
+	./zig-out/bin/fuzz-parse < /dev/zero
+	./zig-out/bin/fuzz-parse < /dev/zero
 
 .PHONY: clean
 clean:
