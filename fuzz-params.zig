@@ -42,10 +42,15 @@ pub fn main() !void {
     };
 }
 
+/// LoadParam installs the key—value pair from fuzz_data content.
 fn loadParam(p: *urlink.QueryParam, fuzz_data: []const u8) []const u8 {
     var in = fuzz_data;
 
-    if (in.len == 0) return "";
+    if (in.len == 0) {
+        p.key = "";
+        p.value = null;
+        return in;
+    }
     var kn = @as(usize, in[0] >> 2) & 7;
     var vn = @as(usize, in[0] >> 5) & 7;
     in = in[1..];
