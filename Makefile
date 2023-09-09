@@ -6,8 +6,8 @@ test: Urlink.zig Urname.zig Urview.zig
 
 .PHONY: bench
 bench: zig-out
-	$?/bin/bench
-	$?/bin/bench
+	# warmup round; errors report to standard error
+	$?/bin/bench > /dev/null
 	$?/bin/bench
 
 

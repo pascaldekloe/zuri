@@ -147,14 +147,14 @@ The following results were measured on an Apple M1. Run `make bench.out` to see
 on your machine.
 
 ```
-benchmark newUrl with host www.w3.org and path { 1999, 02, 22-rdf-syntax-ns }
-URL construction took 27 ns on average, including free
-benchmark newIp6Url with address { 104, 116, 116, 112, 58, 47, 47, 119, 119, 119, 46, 119, 51, 46, 111, 114 } and path { 1999, 02, 22-rdf-syntax-ns }
-IPv6 URL construction took 33 ns on average, including free
-benchmark newUrn with namespace specific part 99/02/22-rdf-syntax-ns#Description
+benchmark newUrl does http://www.w3.org/1999/02/22-rdf-syntax-ns.
+URL construction took 21 ns on average, including free
+benchmark newIp6Url does http://[6874:7470:3A2F:2F77:7777:2E77:332E:6F72]/1999/02/22-rdf-syntax-ns.
+IPv6 URL construction took 29 ns on average, including free
+benchmark newUrn does urn:bench:99%2F02%2F22-rdf-syntax-ns%23Description.
 URN construction took 21 ns on average, including free
-benchmark parse with http://www.w3.org/1999/02/22-rdf-syntax-ns#Description
-parse took 27 ns on average
+benchmark parse does http://www.w3.org/1999/02/22-rdf-syntax-ns#Description.
+parse took 28 ns on average
 ```
 
 

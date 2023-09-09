@@ -10,7 +10,7 @@ const stderr = std.io.getStdErr().writer();
 const stdout = std.io.getStdOut().writer();
 const report = stdout;
 
-const bench_count = 500_000; // number of iterations
+const bench_count = 1_000_000; // number of iterations
 
 pub fn main() !void {
     var sample_buf: [128]u8 = undefined;
