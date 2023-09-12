@@ -326,17 +326,17 @@ test "IPv6 Zero Pairs" {
 /// leading zeroes omitted. Dst is written backwards, starting at pos minus one.
 inline fn writeOctetPairBackwards(dst: *[47]u8, pos: *usize, o1: u8, o2: u8) void {
     pos.* -= 1;
-    dst[pos.*] = hex_table[o2 & 0xf];
+    dst[pos.*] = hex_digits[o2 & 0xf];
     if (o1 != 0 or o2 & 0xf0 != 0) {
         pos.* -= 1;
-        dst[pos.*] = hex_table[o2 >> 4];
+        dst[pos.*] = hex_digits[o2 >> 4];
     }
     if (o1 != 0) {
         pos.* -= 1;
-        dst[pos.*] = hex_table[o1 & 0xf];
+        dst[pos.*] = hex_digits[o1 & 0xf];
         if (o1 & 0xf0 != 0) {
             pos.* -= 1;
-            dst[pos.*] = hex_table[o1 >> 4];
+            dst[pos.*] = hex_digits[o1 >> 4];
         }
     }
 }
@@ -494,12 +494,12 @@ inline fn writeFragment(p: *[*]u8, s: []const u8) void {
     }
 }
 
-const hex_table = "0123456789ABCDEF";
+const hex_digits = "0123456789ABCDEF";
 
 inline fn percentEncode(p: *[*]u8, o: u8) void {
     p.*[0] = '%';
-    p.*[1] = hex_table[o >> 4];
-    p.*[2] = hex_table[o & 15];
+    p.*[1] = hex_digits[o >> 4];
+    p.*[2] = hex_digits[o & 15];
     p.* += 3;
 }
 

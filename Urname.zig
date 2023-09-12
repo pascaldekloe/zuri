@@ -242,12 +242,12 @@ fn writeFragment(p: *[*]u8, s: []const u8) void {
     }
 }
 
-const hex_table = "0123456789ABCDEF";
+const hex_digits = "0123456789ABCDEF";
 
 inline fn percentEncode(p: *[*]u8, o: u8) void {
     p.*[0] = '%';
-    p.*[1] = hex_table[o >> 4];
-    p.*[2] = hex_table[o & 15];
+    p.*[1] = hex_digits[o >> 4];
+    p.*[2] = hex_digits[o & 15];
     p.* += 3;
 }
 
