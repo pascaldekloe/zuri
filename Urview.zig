@@ -128,6 +128,392 @@ pub fn hasPath(ur: *const Urview, match: []const u8) bool {
     return equalString(ur.raw_path, match);
 }
 
+/// PathNorm returns the path with any and all of its percent-encodings resolved
+/// normalized conform the “Normalization and Comparison” rules of RFC 3986. Use
+/// Urview from parse(3) returns exclusively. Results are undefined for invalid
+/// raw_path values. None of the applicable standards put any constraints on the
+/// byte content. The return may or may not be a valid UTF-8 string.
+///
+/// Any and all percent-encoded slashes ("%2F") are written as encodedSlashOut.
+/// Valid options include:
+///
+///  • plain "/" undoes slash-escapes
+///  • Unicode Fullwidth Solidus U+FF0F ("／")
+///  • Unicode Object Replacement Charactacter U+FFFC can be “used as
+///    placeholder in text for an otherwise unspecified object”
+///  • Empty "" drops escaped slashes
+///
+pub fn pathNorm(ur: *const Urview, comptime encodedSlashOut: []const u8, m: Allocator) error{OutOfMemory}![]u8 {
+    // TODO(pascaldekloe): validate uppercase percent encodings in encodedSlashOut
+
+    // path is assumed to be valid
+    const raw = ur.raw_path;
+    if (raw.len < 2) {
+        // no normalization possible
+        if (raw.len == 0) return "";
+        return m.dupe(u8, raw);
+    }
+
+    // first count output octets for memory allocation
+    var size: usize = 0;
+
+    // count sequential dot occurences to act upon "." and ".." segments
+    var dot_count: usize = 0; // current streak in segment
+    var seg_skipn: usize = 0; // pending dot-dot appliances
+
+    // read path backwards because dot-dot applies to the previous
+    var i = raw.len;
+
+    // stop at first character in raw path
+    scan_segment: while (i != 0) {
+        i -= 1;
+        switch (raw[i]) {
+            '.' => {
+                dot_count += 1;
+                continue :scan_segment; // dot streak
+            },
+
+            'E', 'e' => {
+                // percent-encoded dot possible
+                if (i > 1 and raw[i - 1] == '2' and raw[i - 2] == '%') {
+                    dot_count += 1;
+                    i -= 2;
+                    continue :scan_segment; // dot streak
+                }
+            },
+
+            '/' => {
+                // apply segment
+                switch (dot_count) {
+                    0, 1 => {}, // empty segment and single-dot discard
+                    2 => seg_skipn += 1, // enqueue
+                    else => size += dot_count + 1, // dots with slash
+                }
+                dot_count = 0; // reset for next
+                continue :scan_segment;
+            },
+
+            else => {},
+        }
+        // segment not empty, not dot and not dot-dot
+
+        // apply any pending dot-dots
+        if (seg_skipn != 0) {
+            seg_skipn -= 1;
+
+            while (i != 0 and raw[i] != '/') i -= 1;
+            dot_count = 0; // reset for next
+            continue :scan_segment;
+        }
+
+        // count path separator on segment continuation
+        if (size != 0) size += 1;
+
+        // count any dots read
+        size += dot_count;
+        dot_count = 0; // reset
+
+        // count segment remainder
+        while (raw[i] != '/') {
+            if (i < 2 or raw[i - 2] != '%') {
+                size += 1;
+
+                if (i == 0) break :scan_segment;
+                i -= 1;
+                continue;
+            }
+
+            // resolve percent-encoding
+            const v = (hex_table[raw[i - 1]] << 4) | hex_table[raw[i]];
+            size += if (v == '/') encodedSlashOut.len else 1;
+
+            if (i < 3) break :scan_segment;
+            i -= 3; // pass percent-encoding
+        }
+    }
+    // pending dot-streak possible
+    switch (dot_count) {
+        0, 1 => {}, // discard empty segment or single dot
+        2 => seg_skipn += 1, // enqueue dot-dot
+        else => size += dot_count, // segment with three or more dots
+    }
+
+    if (raw[0] == '/') {
+        // keep path absolute
+        size += "/".len;
+        // any dot-dots beyond root dropped
+    } else if (seg_skipn != 0) {
+        if (size != 0) size += "/".len;
+        while (true) {
+            size += "..".len;
+            seg_skipn -= 1;
+            if (seg_skipn == 0) break;
+            size += "/".len;
+        }
+    } else if (size == 0) {
+        // relative path deducted to zero
+        size = ".".len;
+    }
+
+    // output string & write pointer
+    var out = try m.alloc(u8, size);
+    var p = out.ptr + size;
+
+    // reset for second/final pass
+    dot_count = 0;
+    seg_skipn = 0;
+    i = raw.len;
+
+    // write segments (backwards) with lazy path separation
+    map_segment: while (i != 0) {
+        i -= 1;
+        switch (raw[i]) {
+            '.' => {
+                dot_count += 1;
+                continue :map_segment; // next
+            },
+
+            'E', 'e' => {
+                // percent-encoded dot possible;
+                if (i > 1 and raw[i - 1] == '2' and raw[i - 2] == '%') {
+                    i -= 2;
+                    dot_count += 1;
+                    continue :map_segment; // next
+                }
+            },
+
+            '/' => {
+                // apply segment
+                switch (dot_count) {
+                    0, 1 => {
+                        // discard empty segment or single dot
+                        dot_count = 0;
+                        continue :map_segment;
+                    },
+                    2 => {
+                        // enqueue dot-dot
+                        seg_skipn += 1;
+                        dot_count = 0;
+                        continue :map_segment;
+                    },
+
+                    else => {},
+                }
+            },
+
+            else => {},
+        }
+        // segment not empty, not dot and not dot-dot
+
+        // apply any pending dot-dots
+        if (seg_skipn != 0) {
+            seg_skipn -= 1;
+            while (i != 0 and raw[i] != '/') i -= 1;
+            dot_count = 0; // reset for next
+            continue :map_segment;
+        }
+
+        // write path separator on segment continuation
+        if (p != out.ptr + out.len) {
+            p -= 1;
+            p[0] = '/';
+        }
+
+        // write any dots read
+        for (0..dot_count) |_| {
+            p -= 1;
+            p[0] = '.';
+        }
+        dot_count = 0; // reset
+
+        // write segment remainder
+        while (raw[i] != '/') {
+            if (i < 2 or raw[i - 2] != '%') {
+                // copy c
+                p -= 1;
+                p[0] = raw[i];
+
+                if (i == 0) break :map_segment;
+                i -= 1;
+                continue;
+            }
+
+            // resolve percent-encoding
+            const v = (hex_table[raw[i - 1]] << 4) | hex_table[raw[i]];
+            if (v == '/') {
+                p -= encodedSlashOut.len;
+                @memcpy(p, encodedSlashOut);
+            } else {
+                p -= 1;
+                p[0] = v;
+            }
+
+            if (i < 3) break :map_segment;
+            i -= 3; // pass percent-encoding
+        }
+    }
+
+    switch (dot_count) {
+        0, 1 => {}, // discard empty segment or single dot
+        2 => seg_skipn += 1, // enqueue dot-dot
+        else => {
+            // write path separator
+            if (p != out.ptr + out.len) {
+                p -= 1;
+                p[0] = '/';
+            }
+            for (0..dot_count) |_| {
+                p -= 1;
+                p[0] = '.';
+            }
+        },
+    }
+
+    if (raw[0] == '/') {
+        // keep path absolute
+        p -= 1;
+        p[0] = '/';
+        // any dot-dots beyond root dropped
+    } else if (seg_skipn != 0) {
+        if (p != out.ptr + out.len) {
+            p -= 1;
+            p[0] = '/';
+        }
+        while (true) {
+            p -= 2;
+            p[0] = '.';
+            p[1] = '.';
+            seg_skipn -= 1;
+            if (seg_skipn == 0) break;
+            p -= 1;
+            p[0] = '/';
+        }
+    } else if (p == out.ptr + out.len) {
+        // relative path deducted to zero
+        p -= 1;
+        p[0] = '.';
+    }
+
+    return out;
+}
+
+test "Path Normalization" {
+    const golden = struct {
+        path: []const u8,
+        want: []const u8,
+    };
+    const tests = [_]golden{
+        .{ .path = "foo", .want = "foo" },
+        .{ .path = "/foo", .want = "/foo" },
+        .{ .path = "foo/bar", .want = "foo/bar" },
+        .{ .path = "/foo/bar", .want = "/foo/bar" },
+        .{ .path = "%62%61%7A", .want = "baz" },
+        .{ .path = "/%62%61%7a", .want = "/baz" },
+
+        // leading dots
+        .{ .path = "./r", .want = "r" },
+        .{ .path = "/./a", .want = "/a" },
+        .{ .path = "././r", .want = "r" },
+        .{ .path = "/././a", .want = "/a" },
+
+        .{ .path = "../r", .want = "../r" },
+        .{ .path = "/../a", .want = "/a" },
+        .{ .path = "../../r", .want = "../../r" },
+        .{ .path = "/../../a", .want = "/a" },
+
+        .{ .path = ".././r", .want = "../r" },
+        .{ .path = "/.././a", .want = "/a" },
+        .{ .path = "./../r", .want = "../r" },
+        .{ .path = "/./../a", .want = "/a" },
+
+        // trailing dots
+        .{ .path = "r/.", .want = "r" },
+        .{ .path = "/a/.", .want = "/a" },
+        .{ .path = "r/./.", .want = "r" },
+        .{ .path = "/a/./.", .want = "/a" },
+
+        .{ .path = "r/..", .want = "." },
+        .{ .path = "/a/..", .want = "/" },
+        .{ .path = "r/../..", .want = ".." },
+        .{ .path = "/a/../..", .want = "/" },
+
+        .{ .path = "r/../.", .want = "." },
+        .{ .path = "/a/../.", .want = "/" },
+        .{ .path = "r/./..", .want = "." },
+        .{ .path = "/a/./..", .want = "/" },
+
+        // inner dots
+        .{ .path = "r/./e", .want = "r/e" },
+        .{ .path = "/a/./e", .want = "/a/e" },
+        .{ .path = "r/././e", .want = "r/e" },
+        .{ .path = "/a/././e", .want = "/a/e" },
+
+        .{ .path = "r/../e", .want = "e" },
+        .{ .path = "/a/../e", .want = "/e" },
+        .{ .path = "r/../../e", .want = "../e" },
+        .{ .path = "/a/../../e", .want = "/e" },
+
+        .{ .path = "r/.././e", .want = "e" },
+        .{ .path = "/a/.././e", .want = "/e" },
+        .{ .path = "r/./../e", .want = "e" },
+        .{ .path = "/a/./../e", .want = "/e" },
+
+        .{ .path = "r/../.././e", .want = "../e" },
+        .{ .path = "/a/../.././e", .want = "/e" },
+        .{ .path = "r/.././../e", .want = "../e" },
+        .{ .path = "/a/.././../e", .want = "/e" },
+        .{ .path = "r/./../../e", .want = "../e" },
+        .{ .path = "/a/./../../e", .want = "/e" },
+
+        // trailing percent-encoded dots
+        .{ .path = "r/e/%2E%2e", .want = "r" },
+        .{ .path = "/a/e/%2e%2E", .want = "/a" },
+        .{ .path = "r/e/.%2E/%2e.", .want = "." },
+        .{ .path = "/a/e/.%2e/%2E.", .want = "/" },
+        // leading percent-encoded dots
+        .{ .path = "%2E/%2E%2E", .want = ".." },
+        .{ .path = "%2E%2e/%2E/%2E%2E", .want = "../.." },
+        // deduct percent-encoded alphabeticals
+        .{ .path = "%72/%65/%2E%2e", .want = "r" },
+        .{ .path = "/%61/%65/%2e%2E", .want = "/a" },
+        .{ .path = "%72/%65/.%2E/%2e.", .want = "." },
+        .{ .path = "/%61/%65/.%2e/%2E.", .want = "/" },
+
+        // percent-encoded slashes & dots
+        .{ .path = "%2F%2E", .want = "💀." },
+        .{ .path = "%2f%2e", .want = "💀." },
+        .{ .path = "%2E%2F", .want = ".💀" },
+        .{ .path = "%2e%2f", .want = ".💀" },
+        .{ .path = "%2F%2e%2E", .want = "💀.." },
+        .{ .path = "%2f%2E%2e", .want = "💀.." },
+        .{ .path = "%2e%2E%2F", .want = "..💀" },
+        .{ .path = "%2E%2e%2f", .want = "..💀" },
+    };
+
+    var failn: usize = 0;
+    for (tests) |t| {
+        const ur = Urview{ .raw_scheme = "file", .raw_path = t.path };
+        const got = ur.pathNorm("💀", std.testing.allocator) catch "<out of memory>";
+        defer std.testing.allocator.free(got);
+        expectEqualStrings(t.want, got) catch {
+            std.debug.print("pathNorm({s}) got {s}, want {s}\n", .{ t.path, got, t.want });
+            failn += 1;
+        };
+    }
+    try expectEqual(@as(usize, 0), failn);
+}
+
+test "Percent-Encoded Slash Trim" {
+    // 🤢 “<file> URI with UNC Path” — RFC 8089, appendix E.3.2
+    const ur = try Urview.parse("file://///host.example.com/I%2FO/");
+    try expectEqualStrings("///host.example.com/I%2FO/", ur.raw_path);
+
+    // replace "%2F" with zero string
+    const got = try ur.pathNorm("", std.testing.allocator);
+    defer std.testing.allocator.free(got);
+    try expectEqualStrings("/host.example.com/IO", got);
+}
+
 /// Query returns the value with any and all percent-encodings resolved. None of
 /// the applicable standards put any constraints on the byte content. The return
 /// may or may not be a valid UTF-8 string.
