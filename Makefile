@@ -32,10 +32,6 @@ zig-out: *.zig
 	zig build
 
 
-.PHONY: fuzz-parse-console
-fuzz-parse-console: zig-out
-	afl-fuzz -i sample -o fuzz-parse -O -g 0 -G 64 -- $?/bin/fuzz-parse
-
 .PHONY: fuzz-url-console
 fuzz-url-console: zig-out
 	# samples not applicable yet it does not matter
@@ -45,6 +41,10 @@ fuzz-url-console: zig-out
 fuzz-urn-console: zig-out
 	# samples not applicable yet it does not matter
 	afl-fuzz -i sample -o fuzz-urn -O -g 0 -G 64 -- $?/bin/fuzz-urn
+
+.PHONY: fuzz-urview-console
+fuzz-urview-console: zig-out
+	afl-fuzz -i sample -o fuzz-urview -O -g 0 -G 64 -- $?/bin/fuzz-urview
 
 
 .PHONY: fmt
@@ -58,13 +58,13 @@ dist: test fmt zig-out test-samples doc
 # <https://github.com/ziglang/zig/issues/16866>.
 .PHONY: test-samples
 test-samples: zig-out
-	./zig-out/bin/fuzz-parse < sample/bloat
-	./zig-out/bin/fuzz-parse < sample/empty
-	./zig-out/bin/fuzz-parse < sample/tricky
-	./zig-out/bin/fuzz-parse < /dev/null
+	./zig-out/bin/fuzz-urview < sample/bloat
+	./zig-out/bin/fuzz-urview < sample/empty
+	./zig-out/bin/fuzz-urview < sample/tricky
+	./zig-out/bin/fuzz-urview < /dev/null
 	./zig-out/bin/fuzz-url < /dev/null
 	./zig-out/bin/fuzz-urn < /dev/null
-	./zig-out/bin/fuzz-parse < /dev/zero
+	./zig-out/bin/fuzz-urview < /dev/zero
 	./zig-out/bin/fuzz-url < /dev/zero
 	./zig-out/bin/fuzz-urn < /dev/zero
 

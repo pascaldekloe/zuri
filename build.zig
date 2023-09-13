@@ -52,29 +52,25 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_urview_tests.step);
     test_step.dependOn(&run_urlink_tests.step);
 
-    const parse_fuzzer = b.addExecutable(.{
-        .name = "fuzz-parse",
-        .root_source_file = .{ .path = "fuzz-parse.zig" },
-        .optimize = std.builtin.OptimizeMode.ReleaseSafe,
-    });
-    b.installArtifact(parse_fuzzer);
-    const url_fuzzer = b.addExecutable(.{
+    b.installArtifact(b.addExecutable(.{
         .name = "fuzz-url",
         .root_source_file = .{ .path = "fuzz-url.zig" },
         .optimize = std.builtin.OptimizeMode.ReleaseSafe,
-    });
-    b.installArtifact(url_fuzzer);
-    const urn_fuzzer = b.addExecutable(.{
+    }));
+    b.installArtifact(b.addExecutable(.{
         .name = "fuzz-urn",
         .root_source_file = .{ .path = "fuzz-urn.zig" },
         .optimize = std.builtin.OptimizeMode.ReleaseSafe,
-    });
-    b.installArtifact(urn_fuzzer);
+    }));
+    b.installArtifact(b.addExecutable(.{
+        .name = "fuzz-urview",
+        .root_source_file = .{ .path = "fuzz-urview.zig" },
+        .optimize = std.builtin.OptimizeMode.ReleaseSafe,
+    }));
 
-    const bench = b.addExecutable(.{
+    b.installArtifact(b.addExecutable(.{
         .name = "bench",
         .root_source_file = .{ .path = "bench.zig" },
         .optimize = std.builtin.OptimizeMode.ReleaseFast,
-    });
-    b.installArtifact(bench);
+    }));
 }
