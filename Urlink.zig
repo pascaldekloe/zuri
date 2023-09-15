@@ -20,9 +20,16 @@ host: []const u8 = "",
 /// specify non-standard values only.
 port: ?u16 = null,
 
-/// Path segments are separated by a slash character ("/"), including a leading
-/// one [root]. Put an empty string last for a tailing slash.
+/// Relative paths are prefixed with a leading slash when any of userinfo, host
+/// or port is present.
+path: ?[]const u8 = null,
+
+/// Segments append to the path component each with a leading slash character
+/// ("/") in order of appearance. Use an empty empty string at the end for a
+/// trailing slash.
 segments: []const []const u8 = &[0][]u8{},
+
+query: ?[]const u8 = null,
 
 /// Parameters append to the query component in order of appearance, in the form
 /// of: key ?( "=" value ) *( "&" key ?( "=" value ))
@@ -67,9 +74,9 @@ fn newUrlAsSearch(ur: *const Urlink, comptime scheme: []const u8, comptime asSea
     if (ur.port) |_| size += 1 + port_decimals.len - port_offset;
     if (ur.userinfo) |u| size += userinfoSize(u);
     for (ur.host) |c| size += reg_name_char_sizes[c];
-    size += segmentsSize(ur.segments);
-    size += paramsSize(ur.params, asSearch);
-    if (ur.fragment) |s| size += fragmentSize(s);
+    size += ur.pathSize();
+    size += ur.querySize(asSearch);
+    size += ur.fragmentSize();
 
     // output + write pointer
     var b = try m.alloc(u8, size);
@@ -93,9 +100,9 @@ fn newUrlAsSearch(ur: *const Urlink, comptime scheme: []const u8, comptime asSea
         @memcpy(p, s);
         p += s.len;
     }
-    writeSegments(&p, ur.segments);
-    writeParams(&p, ur.params, asSearch);
-    if (ur.fragment) |s| writeFragment(&p, s);
+    ur.writePath(&p);
+    ur.writeQuery(&p, asSearch);
+    ur.writeFragment(&p);
     return b;
 }
 
@@ -109,7 +116,7 @@ test "URL Construction" {
     try expectEqualStrings("http://xn--99zt52a.example.org/%E2%80%AE", try (&Urlink{ .host = "xn--99zt52a.example.org", .segments = &.{"\u{202E}"} }).newUrl("http", allocator));
 
     // “IMAP URL Scheme” RFC 2192, section 10
-    try expectEqualStrings("imap://michael@minbari.org/users.*;type=list", try (&Urlink{ .userinfo = "michael", .host = "minbari.org", .segments = &.{"users.*;type=list"} }).newUrl("imap", allocator));
+    try expectEqualStrings("imap://michael@minbari.org/users.*;type=list", try (&Urlink{ .userinfo = "michael", .host = "minbari.org", .path = "users.*;type=list" }).newUrl("imap", allocator));
     try expectEqualStrings("imap://psicorp.org/~peter/%E6%97%A5%E6%9C%AC%E8%AA%9E/%E5%8F%B0%E5%8C%97", try (&Urlink{ .host = "psicorp.org", .segments = &.{ "~peter", "日本語", "台北" } }).newUrl("imap", allocator));
 
     // “POP URL Scheme” RFC 2384, section 7
@@ -149,9 +156,9 @@ fn newIp6UrlAsSearch(ur: *const Urlink, comptime scheme: []const u8, comptime as
     var size = scheme.len + 3;
     if (ur.userinfo) |u| size += userinfoSize(u);
     size += host_port.len;
-    size += segmentsSize(ur.segments);
-    size += paramsSize(ur.params, asSearch);
-    if (ur.fragment) |s| size += fragmentSize(s);
+    size += ur.pathSize();
+    size += ur.querySize(asSearch);
+    size += ur.fragmentSize();
 
     // output + write pointer
     var b = try m.alloc(u8, size);
@@ -163,9 +170,9 @@ fn newIp6UrlAsSearch(ur: *const Urlink, comptime scheme: []const u8, comptime as
     if (ur.userinfo) |u| writeUserinfo(&p, u);
     @memcpy(p, host_port);
     p += host_port.len;
-    writeSegments(&p, ur.segments);
-    writeParams(&p, ur.params, asSearch);
-    if (ur.fragment) |s| writeFragment(&p, s);
+    ur.writePath(&p);
+    ur.writeQuery(&p, asSearch);
+    ur.writeFragment(&p);
     return b;
 }
 
@@ -372,17 +379,32 @@ inline fn writeUserinfo(p: *[*]u8, s: []const u8) void {
     p.* += 1;
 }
 
-inline fn segmentsSize(segs: []const []const u8) usize {
+inline fn pathSize(ur: *const Urlink) usize {
     var size: usize = 0;
-    for (segs) |seg| {
+    if (ur.path) |s| {
+        if ((s.len == 0 or s[0] != '/') and (ur.userinfo != null or ur.host.len != 0 or ur.port != null)) size += 1;
+        for (s) |c| size += path_char_sizes[c];
+    }
+    for (ur.segments) |seg| {
         size += 1; // "/"
         for (seg) |c| size += segment_char_sizes[c];
     }
     return size;
 }
 
-inline fn writeSegments(p: *[*]u8, segs: []const []const u8) void {
-    for (segs) |seg| {
+inline fn writePath(ur: *const Urlink, p: *[*]u8) void {
+    if (ur.path) |s| {
+        if ((s.len == 0 or s[0] != '/') and (ur.userinfo != null or ur.host.len != 0 or ur.port != null)) {
+            p.*[0] = '/';
+            p.* += 1;
+        }
+        for (s) |c| if (path_char_sizes[c] & 2 == 0) {
+            p.*[0] = c;
+            p.* += 1;
+        } else percentEncode(p, c);
+    }
+
+    for (ur.segments) |seg| {
         p.*[0] = '/';
         p.* += 1;
         for (seg) |c| {
@@ -394,17 +416,57 @@ inline fn writeSegments(p: *[*]u8, segs: []const []const u8) void {
     }
 }
 
-inline fn paramsSize(params: []const Param, comptime asSearch: bool) usize {
-    var size = params.len; // "?" or "&";
-    for (params) |param| size += if (asSearch) param.sizeAsSearch() else param.size();
+inline fn querySize(ur: *const Urlink, comptime asSearch: bool) usize {
+    var size: usize = 0;
+    if (ur.query) |s| {
+        size += 1; // "?"
+        for (s) |c| size += query_char_sizes[c];
+    }
+
+    size += ur.params.len; // "?" or "&";
+    for (ur.params) |param| size += if (asSearch) param.sizeAsSearch() else param.size();
+
     return size;
 }
 
-inline fn writeParams(p: *[*]u8, params: []const Param, comptime asSearch: bool) void {
-    for (params, 0..) |param, i| {
-        p.*[0] = if (i == 0) '?' else '&';
+inline fn writeQuery(ur: *const Urlink, p: *[*]u8, comptime asSearch: bool) void {
+    if (ur.query) |s| {
+        p.*[0] = '?';
+        p.* += 1;
+        for (s) |c| {
+            if (query_char_sizes[c] & 2 == 0) {
+                p.*[0] = c;
+                p.* += 1;
+            } else percentEncode(p, c);
+        }
+    }
+
+    for (ur.params, 0..) |param, i| {
+        p.*[0] = if (i == 0 and ur.query == null) '?' else '&';
         p.* += 1;
         if (asSearch) param.writeAsSearch(p) else param.write(p);
+    }
+}
+
+inline fn fragmentSize(ur: *const Urlink) usize {
+    var size: usize = 0;
+    if (ur.fragment) |s| {
+        size += 1; // "#"
+        for (s) |c| size += fragment_char_sizes[c];
+    }
+    return size;
+}
+
+inline fn writeFragment(ur: *const Urlink, p: *[*]u8) void {
+    if (ur.fragment) |s| {
+        p.*[0] = '#';
+        p.* += 1;
+        for (s) |c| {
+            if (fragment_char_sizes[c] & 2 == 0) {
+                p.*[0] = c;
+                p.* += 1;
+            } else percentEncode(p, c);
+        }
     }
 }
 
@@ -477,23 +539,6 @@ inline fn writeSearchParamValue(p: *[*]u8, s: []const u8) void {
     }
 }
 
-inline fn fragmentSize(s: []const u8) usize {
-    var size: usize = 1; // "#"
-    for (s) |c| size += fragment_char_sizes[c];
-    return size;
-}
-
-inline fn writeFragment(p: *[*]u8, s: []const u8) void {
-    p.*[0] = '#';
-    p.* += 1;
-    for (s) |c| {
-        if (fragment_char_sizes[c] & 2 == 0) {
-            p.*[0] = c;
-            p.* += 1;
-        } else percentEncode(p, c);
-    }
-}
-
 const hex_digits = "0123456789ABCDEF";
 
 inline fn percentEncode(p: *[*]u8, o: u8) void {
@@ -535,6 +580,14 @@ fn buildRegNameCharSizes() [256]u2 {
     return sizes;
 }
 
+const path_char_sizes: [256]u2 = buildPathCharSizes();
+
+fn buildPathCharSizes() [256]u2 {
+    var sizes: [256]u2 = buildSegmentCharSizes();
+    sizes['/'] = 1;
+    return sizes;
+}
+
 const segment_char_sizes: [256]u2 = buildSegmentCharSizes();
 
 fn buildSegmentCharSizes() [256]u2 {
@@ -552,19 +605,28 @@ fn buildSegmentCharSizes() [256]u2 {
     return sizes;
 }
 
-const param_char_sizes: [256]u2 = buildParamCharSizes();
+const query_char_sizes: [256]u2 = buildQueryCharSizes();
 
-fn buildParamCharSizes() [256]u2 {
+fn buildQueryCharSizes() [256]u2 {
     var sizes: [256]u2 = undefined;
     for (0..256) |c| sizes[c] = switch (c) {
         // unreserved
         'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
-        // sub-delims − "=" − "&"
-        '!', '$', '\'', '(', ')', '*', '+', ',', ';' => 1,
+        // sub-delims
+        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
         // query
         ':', '@', '/', '?' => 1,
         else => 3,
     };
+    return sizes;
+}
+
+const param_char_sizes: [256]u2 = buildParamCharSizes();
+
+fn buildParamCharSizes() [256]u2 {
+    var sizes = buildQueryCharSizes();
+    sizes['='] = 3;
+    sizes['&'] = 3;
     return sizes;
 }
 
@@ -577,21 +639,4 @@ fn buildSearchParamCharSizes() [256]u2 {
     return sizes;
 }
 
-const fragment_char_sizes: [256]u2 = buildFragmentCharSizes();
-
-fn buildFragmentCharSizes() [256]u2 {
-    var sizes: [256]u2 = undefined;
-    // match fragment from RFC 3986, subsection 3.5
-    for (0..256) |c| sizes[c] = switch (c) {
-        // unreserved
-        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
-        // sub-delims
-        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
-        // pchar
-        ':', '@' => 1,
-        // query
-        '/', '?' => 1,
-        else => 3,
-    };
-    return sizes;
-}
+const fragment_char_sizes: [256]u2 = query_char_sizes;
