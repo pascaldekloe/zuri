@@ -185,7 +185,7 @@ test "IPv6 URL Construction" {
     try expectEqualStrings("ftp://[::0]/%F0%9F%91%BE", try (&Urlink{ .segments = &.{"👾"} }).newIp6Url("ftp", .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, allocator));
     try expectEqualStrings("ssh://[::2]/%F0%9F%91%BB", try (&Urlink{ .segments = &.{"👻"} }).newIp6Url("ssh", .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2 }, allocator));
     try expectEqualStrings("echo://[102:3400::]:7", try (&Urlink{ .port = 7 }).newIp6Url("echo", .{ 1, 2, 0x34, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, allocator));
-    try expectEqualStrings("telnet://:guest@[1001::F607:809]", try (&Urlink{ .userinfo = ":guest" }).newIp6Url("telnet", .{ 16, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xf6, 7, 8, 9 }, allocator));
+    try expectEqualStrings("telnet://:guest@[1001::f607:809]", try (&Urlink{ .userinfo = ":guest" }).newIp6Url("telnet", .{ 16, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xf6, 7, 8, 9 }, allocator));
 }
 
 /// FormatIp6AndPortIn encodes the address with an optional port number
@@ -329,21 +329,26 @@ test "IPv6 Zero Pairs" {
     }
 }
 
+/// “… producers and normalizers should use lowercase for registered names and
+/// hexadecimal addresses for the sake of uniformity …”
+// — RFC 3986, subsection 3.2.2
+const lower_hex_digits = "0123456789abcdef";
+
 /// WriteOctetPairBackwards encodes 16 bits in hexadecimal with any and all
 /// leading zeroes omitted. Dst is written backwards, starting at pos minus one.
 inline fn writeOctetPairBackwards(dst: *[47]u8, pos: *usize, o1: u8, o2: u8) void {
     pos.* -= 1;
-    dst[pos.*] = hex_digits[o2 & 0xf];
+    dst[pos.*] = lower_hex_digits[o2 & 0xf];
     if (o1 != 0 or o2 & 0xf0 != 0) {
         pos.* -= 1;
-        dst[pos.*] = hex_digits[o2 >> 4];
+        dst[pos.*] = lower_hex_digits[o2 >> 4];
     }
     if (o1 != 0) {
         pos.* -= 1;
-        dst[pos.*] = hex_digits[o1 & 0xf];
+        dst[pos.*] = lower_hex_digits[o1 & 0xf];
         if (o1 & 0xf0 != 0) {
             pos.* -= 1;
-            dst[pos.*] = hex_digits[o1 >> 4];
+            dst[pos.*] = lower_hex_digits[o1 >> 4];
         }
     }
 }
