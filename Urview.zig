@@ -930,7 +930,7 @@ fn asIpLiteral(ur: *Urview, s: []const u8, start: usize) ParseError!void {
 
     // match IP-literal from RFC 3986, subsection 3.2.2 with a jump table
     while (i < s.len) : (i += 1) switch (s[i]) {
-        inline '0'...'9', 'a'...'f', 'A'...'F' => { // HEXDIG
+        '0'...'9', 'a'...'f', 'A'...'F' => { // HEXDIG
             if (hexn == 0) h16n += 1;
             hexn += 1;
         },
@@ -975,7 +975,7 @@ fn asIpLiteral(ur: *Urview, s: []const u8, start: usize) ParseError!void {
             // match ZoneID from “IPv6 Zone IDs in URIs” RFC 6874, section 2
             while (i < s.len) switch (s[i]) {
                 // unreserved
-                inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => i += 1,
+                'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => i += 1,
                 // pct-encoded
                 '%' => {
                     try verifyProcentEncoding(s, i);
@@ -985,11 +985,11 @@ fn asIpLiteral(ur: *Urview, s: []const u8, start: usize) ParseError!void {
                     if (i <= zone_start) return ParseError.AddressViolation;
                     return ipLiteralEnd(ur, s, i);
                 },
-                inline else => return ParseError.AddressViolation,
+                else => return ParseError.AddressViolation,
             };
         },
 
-        inline else => return ParseError.AddressViolation,
+        else => return ParseError.AddressViolation,
     };
 
     return ParseError.AddressViolation; // not closed with "]"
@@ -1007,15 +1007,15 @@ fn asIpFuture(ur: *Urview, s: []const u8, start: usize) ParseError!void {
     var i = start + 4;
     while (i < s.len) : (i += 1) switch (s[i]) {
         // unreserved
-        inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => continue,
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => continue,
         // sub-delims
-        inline '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => continue,
+        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => continue,
         ':' => continue,
         ']' => {
             if (i < start + 5) return ParseError.AddressViolation;
             return ipLiteralEnd(ur, s, i);
         },
-        inline else => return ParseError.AddressViolation,
+        else => return ParseError.AddressViolation,
     };
     return ParseError.AddressViolation; // not closed with "]"
 }
@@ -1027,7 +1027,7 @@ fn Ip4inIp6Continue(ur: *Urview, s: []const u8, start: usize) ParseError!void {
 
     // match IPv4address from RFC 3986, subsection 3.2.2
     while (i < s.len) : (i += 1) switch (s[i]) {
-        inline '0'...'9' => {
+        '0'...'9' => {
             decn += 1;
         },
         '.' => {
@@ -1046,7 +1046,7 @@ fn Ip4inIp6Continue(ur: *Urview, s: []const u8, start: usize) ParseError!void {
 
             return ipLiteralEnd(ur, s, i);
         },
-        inline else => return ParseError.AddressViolation,
+        else => return ParseError.AddressViolation,
     };
     return ParseError.AddressViolation; // not closed with "]"
 }
@@ -1127,7 +1127,7 @@ fn pathContinue(ur: *Urview, s: []const u8) ParseError!void {
                 ur.raw_path = s[0..i];
                 return fragmentContinue(ur, s[i..]);
             },
-            inline else => return ParseError.IllegalPathCharacter,
+            else => return ParseError.IllegalPathCharacter,
         }
     }
     ur.raw_path = s;
@@ -1154,7 +1154,7 @@ fn queryContinue(ur: *Urview, s: []const u8) ParseError!void {
                 ur.raw_query = s[0..i];
                 return fragmentContinue(ur, s[i..]);
             },
-            inline else => return ParseError.IllegalQueryCharacter,
+            else => return ParseError.IllegalQueryCharacter,
         }
     }
     ur.raw_query = s;
