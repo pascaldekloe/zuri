@@ -81,7 +81,7 @@ pub fn hasScheme(ur: *const Urview, comptime match: []const u8) bool {
 /// byte content. The return may or may not be a valid UTF-8 string.
 pub fn userinfo(ur: *const Urview, m: Allocator) error{OutOfMemory}![]u8 {
     if (ur.raw_userinfo.len < 2) return "";
-    return unescape(ur.raw_userinfo[0 .. ur.raw_userinfo.len - 1], m);
+    return resolvePercentEncodings(ur.raw_userinfo[0 .. ur.raw_userinfo.len - 1], m);
 }
 
 /// HasUserinfo returns whether the userinfo component is present, and
@@ -97,7 +97,7 @@ pub fn hasUserinfo(ur: *const Urview, match: []const u8) bool {
 /// byte content. The return may or may not be a valid UTF-8 string.
 pub fn host(ur: *const Urview, m: Allocator) error{OutOfMemory}![]u8 {
     if (ur.raw_host.len == 0) return "";
-    return unescape(ur.raw_host, m);
+    return resolvePercentEncodings(ur.raw_host, m);
 }
 
 /// HasHost returns whether the authority component is present, and whether
@@ -119,7 +119,7 @@ pub fn port(ur: *const Urview) u16 {
 /// byte content. The return may or may not be a valid UTF-8 string.
 pub fn path(ur: *const Urview, m: Allocator) error{OutOfMemory}![]u8 {
     if (ur.raw_path.len == 0) return "";
-    return unescape(ur.raw_path, m);
+    return resolvePercentEncodings(ur.raw_path, m);
 }
 
 /// HasPath returns whether the value with any and all percent-encodings
@@ -137,11 +137,11 @@ pub fn hasPath(ur: *const Urview, match: []const u8) bool {
 /// Any and all percent-encoded slashes ("%2F") are written as encodedSlashOut.
 /// Valid options include:
 ///
-///  • plain "/" undoes slash-escapes
+///  • Plain "/" undoes any percent-encoding of slashes
 ///  • Unicode Fullwidth Solidus U+FF0F ("／")
 ///  • Unicode Object Replacement Charactacter U+FFFC can be “used as
 ///    placeholder in text for an otherwise unspecified object”
-///  • Empty "" drops escaped slashes
+///  • Empty "" simply drops percent-encoded slashes
 ///
 pub fn pathNorm(ur: *const Urview, comptime encodedSlashOut: []const u8, m: Allocator) error{OutOfMemory}![]u8 {
     // TODO(pascaldekloe): validate uppercase percent encodings in encodedSlashOut
@@ -519,7 +519,7 @@ test "Percent-Encoded Slash Trim" {
 /// may or may not be a valid UTF-8 string.
 pub fn query(ur: *const Urview, m: Allocator) error{OutOfMemory}![]u8 {
     if (ur.raw_query.len < 2) return "";
-    return unescape(ur.raw_query[1..], m);
+    return resolvePercentEncodings(ur.raw_query[1..], m);
 }
 
 /// HasQuery returns whether a query component is present, and whether its
@@ -534,7 +534,7 @@ pub fn hasQuery(ur: *const Urview, match: []const u8) bool {
 /// return may or may not be a valid UTF-8 string.
 pub fn fragment(ur: *const Urview, m: Allocator) error{OutOfMemory}![]u8 {
     if (ur.raw_fragment.len < 2) return "";
-    return unescape(ur.raw_fragment[1..], m);
+    return resolvePercentEncodings(ur.raw_fragment[1..], m);
 }
 
 /// HasFragment returns whether a fragment component is present, and whether
@@ -544,42 +544,65 @@ pub fn hasFragment(ur: *const Urview, match: []const u8) bool {
     return equalString(ur.raw_fragment[1..], match);
 }
 
-// ParseError tries to be explicity about the source of conflict.
+/// Parse errors signal syntax violation.
 pub const ParseError = error{
-    /// A scheme prefix is the only required component of a URI.
+    /// A scheme prefix is the only required component of a URI. NoScheme
+    /// implies not-a-URI.
     NoScheme,
 
-    /// Each component has its own constraints. Only characters "A"–"Z",
-    /// "a"–"z", "0"–"9", "-", ".", "_" and "~" are safe to use without
-    /// reservation.
-    IllegalCharacter,
+    /// The IPv6 address syntax is well defined. Note that zone identifiers are
+    /// permitted since RFC 6874. IPv4 addresses have no validation options. Any
+    /// invalid IPv4 address matches the free-form syntax of registered names.
+    AddressViolation,
 
-    /// IPv6 addresses (within square brackets "[" and "]") have a strict
-    /// syntax definition. Note that zone identifiers are permitted since
-    /// RFC 6874.
-    IllegalAddress,
+    /// Any bracket range "[" and "]" must span the entire host component. The
+    /// authority may contain at most one at character ("@"). The authority may
+    /// contain at most one colon character (":") outside userinfo ("…@").
+    MalformedAuthority,
 
-    /// The port number must consist of decimals exclusively.
-    PortNotNumber,
+    /// The authority components may contain: "A"–"Z", "a"–"z", "0"–"9", "-",
+    /// ".", "_", "~", "!", "$", "&", "'", "(", ")", "*", "+", ",", ";" and "=".
+    /// All other characters need percent-encoding. Misplaced "@", "[", "]" or
+    /// ":" characters cause MalformedAuthority.
+    IllegalAuthorityCharacter,
 
-    /// Every percent ("%") character must be followed by two hex digits.
-    BrokenEscape,
+    /// The port must consist of decimals exclusively.
+    IllegalPortCharacter,
+
+    /// The path component may contain: "A"–"Z", "a"–"z", "0"–"9", "-", ".",
+    /// "_", "~", "!", "$", "&", "'", "(", ")", "*", "+", ",", ";", "=", ":",
+    /// "@" and "/". All other characters need percent-encoding.
+    IllegalPathCharacter,
+
+    /// The query component may contain: "A"–"Z", "a"–"z", "0"–"9", "-", ".",
+    /// "_", "~", "!", "$", "&", "'", "(", ")", "*", "+", ",", ";", "=", ":",
+    /// "@", "/" and "?". All other characters need percent-encoding.
+    IllegalQueryCharacter,
+
+    /// The fragment component may contain: "A"–"Z", "a"–"z", "0"–"9", "-", ".",
+    /// "_", "~", "!", "$", "&", "'", "(", ")", "*", "+", ",", ";", "=", ":",
+    /// "@", "/" and "?". All other characters need percent-encoding.
+    IllegalFragmentCharacter,
+
+    /// Every percent character ("%") must be followed by two hex digits.
+    BrokenPercentEncoding,
 };
 
 /// Parse returns a mapping of s if and only if s is a valid URI.
 pub fn parse(s: []const u8) ParseError!Urview {
     // match scheme from RFC 3986, subsection 3.1
-    for (s, 0..) |c, i| switch (c) {
+    match_scheme: for (s, 0..) |c, i| switch (c) {
         // ALPHA from RFC 2234, subsection 6.1
         'A'...'Z', 'a'...'z' => continue,
         // DIGIT from RFC 2234, subsection 6.1
-        '0'...'9', '+', '-', '.' => if (i == 0) return ParseError.NoScheme,
+        '0'...'9', '+', '-', '.' => if (i == 0) break :match_scheme,
         ':' => {
+            if (i == 0) break :match_scheme;
             var ur = Urview{ .raw_scheme = s[0 .. i + 1] };
             try sinceScheme(&ur, s[i + 1 ..]);
             return ur;
         },
-        else => return ParseError.NoScheme,
+        else => break :match_scheme,
     };
     return ParseError.NoScheme;
 }
@@ -817,12 +840,12 @@ fn sinceScheme(ur: *Urview, s: []const u8) ParseError!void {
     // • any reg-name matches userinfo
     while (i < s.len) {
         if (reg_name_chars[s[i]] != 0) {
-            // either userinfo or reg-name; no escape needed
+            // either userinfo or reg-name
             i += 1;
         } else switch (s[i]) {
             // userinfo
             '@' => {
-                if (ur.raw_userinfo.len != 0) return ParseError.IllegalCharacter;
+                if (ur.raw_userinfo.len != 0) return ParseError.MalformedAuthority;
                 i += 1;
                 ur.raw_userinfo = s[2..i];
                 colon_count = 0; // reset for host count
@@ -847,14 +870,14 @@ fn sinceScheme(ur: *Urview, s: []const u8) ParseError!void {
             },
             '[' => {
                 if (i != 2 + ur.raw_userinfo.len)
-                    return ParseError.IllegalCharacter;
+                    return ParseError.MalformedAuthority;
                 return asIpLiteral(ur, s, i);
             },
             '%' => { // pct-encoded
-                try checkEscape(s, i);
+                try verifyProcentEncoding(s, i);
                 i += 3;
             },
-            else => return ParseError.IllegalCharacter,
+            else => return ParseError.IllegalAuthorityCharacter,
         }
     }
 
@@ -875,9 +898,9 @@ fn authoritySet(ur: *Urview, s: []const u8, colon_count: usize, last_colon: usiz
             // match port from RFC 3986, subsection 3.2.3
             for (ur.raw_port[1..]) |c|
                 if (c < '0' or c > '9')
-                    return ParseError.PortNotNumber;
+                    return ParseError.IllegalPortCharacter;
         },
-        else => return ParseError.PortNotNumber,
+        else => return ParseError.MalformedAuthority,
     }
 }
 
@@ -890,12 +913,12 @@ fn asIpLiteral(ur: *Urview, s: []const u8, start: usize) ParseError!void {
     var zeroes_once = false;
 
     var i = start + 1;
-    if (i >= s.len) return ParseError.IllegalAddress;
+    if (i >= s.len) return ParseError.AddressViolation;
     switch (s[i]) {
         'v' => return asIpFuture(ur, s, start),
         ':' => {
             if (i + 1 >= s.len or s[i + 1] != ':')
-                return ParseError.IllegalAddress;
+                return ParseError.AddressViolation;
             i += 2;
             zeroes_once = true;
         },
@@ -913,16 +936,16 @@ fn asIpLiteral(ur: *Urview, s: []const u8, start: usize) ParseError!void {
         },
         ':' => {
             if (hexn == 0) {
-                if (zeroes_once) return ParseError.IllegalAddress;
+                if (zeroes_once) return ParseError.AddressViolation;
                 zeroes_once = true;
             } else if (hexn > 4) {
-                return ParseError.IllegalAddress;
+                return ParseError.AddressViolation;
             }
             hexn = 0;
         },
         ']' => {
             if (!zeroes_once and h16n != 8 or zeroes_once and h16n > 7)
-                return ParseError.IllegalAddress;
+                return ParseError.AddressViolation;
             return ipLiteralEnd(ur, s, i);
         },
 
@@ -937,15 +960,15 @@ fn asIpLiteral(ur: *Urview, s: []const u8, start: usize) ParseError!void {
             // — “IPv6 Addressing Architecture” RFC4219, subsection 2.5.5.1
 
             if (h16n < 2 or !zeroes_once and h16n != 6 + 1 or zeroes_once and h16n > 5 + 1)
-                return ParseError.IllegalAddress;
+                return ParseError.AddressViolation;
 
             return Ip4inIp6Continue(ur, s, i - hexn);
         },
 
-        // escaped percent ("%") character ("%25") separates zone identifier
+        // percent character ("%"), encoded as "%25", marks a zone identifier
         '%' => {
             if (i + 2 >= s.len or s[i + 1] != '2' or s[i + 2] != '5' or !zeroes_once and h16n != 8 or zeroes_once and h16n > 7)
-                return ParseError.IllegalAddress;
+                return ParseError.AddressViolation;
             i += 3;
             var zone_start = i;
 
@@ -955,30 +978,30 @@ fn asIpLiteral(ur: *Urview, s: []const u8, start: usize) ParseError!void {
                 inline 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => i += 1,
                 // pct-encoded
                 '%' => {
-                    try checkEscape(s, i);
+                    try verifyProcentEncoding(s, i);
                     i += 3;
                 },
                 ']' => {
-                    if (i <= zone_start) return ParseError.IllegalAddress;
+                    if (i <= zone_start) return ParseError.AddressViolation;
                     return ipLiteralEnd(ur, s, i);
                 },
-                inline else => return ParseError.IllegalAddress,
+                inline else => return ParseError.AddressViolation,
             };
         },
 
-        inline else => return ParseError.IllegalAddress,
+        inline else => return ParseError.AddressViolation,
     };
 
-    return ParseError.IllegalAddress; // not closed with "]"
+    return ParseError.AddressViolation; // not closed with "]"
 }
 
 // AsIpFuture parses authority s since "[v" at start.
 fn asIpFuture(ur: *Urview, s: []const u8, start: usize) ParseError!void {
     // match IPvFuture from RFC 3986, subsection 3.2.2
-    if (start + 4 > s.len or s[start + 3] != '.') return ParseError.IllegalAddress;
+    if (start + 4 > s.len or s[start + 3] != '.') return ParseError.AddressViolation;
     switch (s[start + 2]) {
         '0'...'9', 'a'...'f', 'A'...'F' => {}, // HEXDIG
-        else => return ParseError.IllegalAddress,
+        else => return ParseError.AddressViolation,
     }
 
     var i = start + 4;
@@ -989,12 +1012,12 @@ fn asIpFuture(ur: *Urview, s: []const u8, start: usize) ParseError!void {
         inline '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => continue,
         ':' => continue,
         ']' => {
-            if (i < start + 5) return ParseError.IllegalAddress;
+            if (i < start + 5) return ParseError.AddressViolation;
             return ipLiteralEnd(ur, s, i);
         },
-        inline else => return ParseError.IllegalAddress,
+        inline else => return ParseError.AddressViolation,
     };
-    return ParseError.IllegalAddress; // not closed with "]"
+    return ParseError.AddressViolation; // not closed with "]"
 }
 
 fn Ip4inIp6Continue(ur: *Urview, s: []const u8, start: usize) ParseError!void {
@@ -1009,23 +1032,23 @@ fn Ip4inIp6Continue(ur: *Urview, s: []const u8, start: usize) ParseError!void {
         },
         '.' => {
             _ = parseInt(u8, s[i - decn .. i], 10) catch
-                return ParseError.IllegalAddress;
+                return ParseError.AddressViolation;
             if (decn == 0 or s[i - decn] == '0')
-                return ParseError.IllegalAddress;
+                return ParseError.AddressViolation;
             octn += 1;
             decn = 0;
         },
         ']' => {
             _ = parseInt(u8, s[i - decn .. i], 10) catch
-                return ParseError.IllegalAddress;
+                return ParseError.AddressViolation;
             if (decn == 0 or octn != 4 or s[i - decn] == '0')
-                return ParseError.IllegalAddress;
+                return ParseError.AddressViolation;
 
             return ipLiteralEnd(ur, s, i);
         },
-        inline else => return ParseError.IllegalAddress,
+        inline else => return ParseError.AddressViolation,
     };
-    return ParseError.IllegalAddress; // not closed with "]"
+    return ParseError.AddressViolation; // not closed with "]"
 }
 
 // ipLiteralEnd continues from end "]" in authority s.
@@ -1075,11 +1098,12 @@ fn ipLiteralEnd(ur: *Urview, s: []const u8, end: usize) ParseError!void {
                     return fragmentContinue(ur, s[i..]);
                 },
 
-                else => return ParseError.PortNotNumber,
+                else => return ParseError.IllegalPortCharacter,
             };
         },
 
-        else => return ParseError.IllegalCharacter,
+        // trailer after address ended (with "]")
+        else => return ParseError.MalformedAuthority,
     }
 }
 
@@ -1092,7 +1116,7 @@ fn pathContinue(ur: *Urview, s: []const u8) ParseError!void {
             i += 1;
         } else switch (s[i]) {
             '%' => {
-                try checkEscape(s, i);
+                try verifyProcentEncoding(s, i);
                 i += 3;
             },
             '?' => {
@@ -1103,7 +1127,7 @@ fn pathContinue(ur: *Urview, s: []const u8) ParseError!void {
                 ur.raw_path = s[0..i];
                 return fragmentContinue(ur, s[i..]);
             },
-            inline else => return ParseError.IllegalCharacter,
+            inline else => return ParseError.IllegalPathCharacter,
         }
     }
     ur.raw_path = s;
@@ -1123,14 +1147,14 @@ fn queryContinue(ur: *Urview, s: []const u8) ParseError!void {
         } else switch (s[i]) {
             // pct-encoded
             '%' => {
-                try checkEscape(s, i);
+                try verifyProcentEncoding(s, i);
                 i += 3;
             },
             '#' => {
                 ur.raw_query = s[0..i];
                 return fragmentContinue(ur, s[i..]);
             },
-            inline else => return ParseError.IllegalCharacter,
+            inline else => return ParseError.IllegalQueryCharacter,
         }
     }
     ur.raw_query = s;
@@ -1147,16 +1171,15 @@ fn fragmentContinue(ur: *Urview, s: []const u8) ParseError!void {
         if (fragment_chars[s[i]] != 0) {
             i += 1;
         } else {
-            if (s[i] != '%') return ParseError.IllegalCharacter;
-            try checkEscape(s, i);
+            if (s[i] != '%') return ParseError.IllegalFragmentCharacter;
+            try verifyProcentEncoding(s, i);
             i += 3;
         }
     }
     ur.raw_fragment = s;
 }
 
-// Unescape resolves percent-encodings.
-fn unescape(raw: []const u8, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
+fn resolvePercentEncodings(raw: []const u8, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
     // count output size
     var n: usize = 0;
     var i: usize = 0;
@@ -1193,9 +1216,9 @@ fn unescape(raw: []const u8, allocator: std.mem.Allocator) error{OutOfMemory}![]
     return b;
 }
 
-fn checkEscape(s: []const u8, i: usize) ParseError!void {
+fn verifyProcentEncoding(s: []const u8, i: usize) ParseError!void {
     if (i + 2 >= s.len or (hex_table[s[i + 1]] | hex_table[s[i + 2]]) & 0xf0 != 0)
-        return ParseError.BrokenEscape;
+        return ParseError.BrokenPercentEncoding;
 }
 
 const hex_table: [256]u8 = buildHexTable();
