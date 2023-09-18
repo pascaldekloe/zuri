@@ -20,51 +20,31 @@ The API is split in a parsing `Urview.zig`, and the formatting `Urlink.zig` and
 
 ### Urview.zig
 
-Run `make Urview-doc` to see the full interface documentation at `Urview-doc/index.html`.
-
 ```zig
-/// Parse returns a mapping of s if and only if s is a valid URI.
+/// Parse returns a projection of s if and only if s is a valid URI.
 fn parse(s: []const u8) ParseError!Urview
 ```
 
-Urview contains a lossless decomposition with all URI components as is.
+`Urview` provides read-only access to URI components. Input passed to `parse`
+always equals the concatenation of the `rawScheme`, `rawAuthority`, `rawPath`,
+`rawQuery` and `rawFragment` readings.
 
 ```zig
-/// The scheme component ends with ":". It may contain upper-case letters.
-raw_scheme: []const u8,
+/// The raw fragment component starts with "#" when present.
+fn rawFragment(ur: Urview) []const u8
 
-/// The authority component, if any, starts with "//".
-raw_authority: []const u8 = "",
-/// The userinfo component, if any, ends with "@".
-raw_userinfo: []const u8 = "",
-/// The host component can be a registered name, or an IP address.
-raw_host: []const u8 = "",
-/// The port component, if any, starts with ":".
-raw_port: []const u8 = "",
+/// Fragment returns the component with any and all percent-encodings resolved.
+/// None of the applicable standards put any constraints on the byte content.
+/// The return may or may not be a valid UTF-8 string. Caller owns the returned
+/// memory.
+fn fragment(ur: Urview, m: Allocator) error{OutOfMemory}![]u8
 
-/// The path compoment, if any, starts with "/" when (raw_)authority is
-/// present.
-raw_path: []const u8 = "",
-
-/// The query compoment, if any, starts with "?".
-raw_query: []const u8 = "",
-
-/// The fragment component, if any, starts with "#".
-raw_fragment: []const u8 = "",
+/// ContainsFragment returns whether the component with any and all percent-
+/// encodings resolved equals match. Absent components don't equal any match.
+fn containsFragment(ur: Urview, match: []const u8) bool
 ```
 
-Use any of the dedicated methods to resolve and/or compare values.
-
-```zig
-/// Fragment returns the value with any and all percent-encodings resolved. None
-/// of the applicable standards put any constraints on the byte content. The
-/// return may or may not be a valid UTF-8 string.
-fn fragment(ur: *const Urview, m: Allocator) error{OutOfMemory}![]u8
-
-/// HasFragment returns whether a fragment component is present, and whether
-/// its value with any and all percent-encodings resolved equals match.
-fn hasFragment(ur: *const Urview, match: []const u8) bool
-```
+Run `make Urview-doc` to see the full interface documentation at `Urview-doc/index.html`.
 
 
 ### Urlink.zig
@@ -154,7 +134,7 @@ IPv6 URL construction took 29 ns on average, including free
 benchmark newUrn does urn:bench:99%2F02%2F22-rdf-syntax-ns%23Description.
 URN construction took 21 ns on average, including free
 benchmark parse does http://www.w3.org/1999/02/22-rdf-syntax-ns#Description.
-parse took 28 ns on average
+parse took 26 ns on average
 ```
 
 

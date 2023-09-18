@@ -20,15 +20,17 @@ pub fn main() !void {
     // TODO(pascaldekloe): Need an API for path segment extraction.
     var sample_segs: [3][]const u8 = .{ "", "", "" };
     {
-        if (sample.raw_path.len == 0) {
+        if (!sample.hasPath()) {
             try stderr.print("path absent in sample {s}\n", .{sample_url});
             std.os.exit(1);
         }
-        var path = std.mem.splitScalar(u8, sample.raw_path[1..], '/');
+        var path = std.mem.splitScalar(u8, sample.rawPath()[1..], '/');
         if (path.next()) |s| sample_segs[0] = s;
         if (path.next()) |s| sample_segs[1] = s;
         if (path.next()) |s| sample_segs[2] = s;
     }
+
+    const arbitrary_point = sample.rawHost().len;
 
     // fast allocator to minimize benchmark influence
     var buf: [1024]u8 = undefined;
@@ -41,10 +43,10 @@ pub fn main() !void {
 
         var n: usize = bench_count;
         while (n != 0) : (n -= 1) {
-            const ur: Urlink = .{ .host = sample.raw_host, .segments = sample_segs[0..] };
+            const ur: Urlink = .{ .host = sample.rawHost(), .segments = sample_segs[0..] };
             const url = try ur.newUrl("http", allocator);
             std.mem.doNotOptimizeAway(url);
-            if (n == sample.raw_host.len) try report.print("benchmark newUrl does {s}.\n", .{url});
+            if (n == arbitrary_point) try report.print("benchmark newUrl does {s}.\n", .{url});
             allocator.free(url);
         }
 
@@ -65,7 +67,7 @@ pub fn main() !void {
             const ur: Urlink = .{ .segments = sample_segs[0..] };
             const url = try ur.newIp6Url("http", bench_addr, allocator);
             mem.doNotOptimizeAway(url);
-            if (n == sample.raw_host.len) try report.print("benchmark newIp6Url does {s}.\n", .{url});
+            if (n == arbitrary_point) try report.print("benchmark newIp6Url does {s}.\n", .{url});
             allocator.free(url);
         }
 
@@ -84,7 +86,7 @@ pub fn main() !void {
         while (n != 0) : (n -= 1) {
             const urn = try Urname.newUrn("bench", bench_spec, "", allocator);
             mem.doNotOptimizeAway(urn);
-            if (n == sample.raw_host.len) try report.print("benchmark newUrn does {s}.\n", .{urn});
+            if (n == arbitrary_point) try report.print("benchmark newUrn does {s}.\n", .{urn});
             allocator.free(urn);
         }
 
@@ -99,7 +101,7 @@ pub fn main() !void {
         var n: usize = bench_count;
         while (n != 0) : (n -= 1) {
             const ur = try Urview.parse(sample_url);
-            if (n == sample.raw_host.len) try report.print("benchmark parse does {s}{s}{s}{s}{s}.\n", .{ ur.raw_scheme, ur.raw_authority, ur.raw_path, ur.raw_query, ur.raw_fragment });
+            if (n == arbitrary_point) try report.print("benchmark parse does {s}{s}{s}{s}{s}.\n", .{ ur.rawScheme(), ur.rawAuthority(), ur.rawPath(), ur.rawQuery(), ur.rawFragment() });
             mem.doNotOptimizeAway(&ur);
         }
 

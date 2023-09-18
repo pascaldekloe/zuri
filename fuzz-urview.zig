@@ -38,80 +38,88 @@ fn fail(comptime format: []const u8, args: anytype) void {
 
 // VerifyConstraints checks the claims in field comments from Parts.
 fn verifyConstraints(ur: Urview, fuzz_in: []const u8) !void {
+    const raw_scheme = ur.rawScheme();
+    const raw_authority = ur.rawAuthority();
+    const raw_userinfo = ur.rawUserinfo();
+    const raw_host = ur.rawHost();
+    const raw_port = ur.rawPort();
+    const raw_path = ur.rawPath();
+    const raw_query = ur.rawQuery();
+    const raw_fragment = ur.rawFragment();
+
     // lossless mapping
     {
-        const components = .{ ur.raw_scheme, ur.raw_authority, ur.raw_path, ur.raw_query, ur.raw_fragment };
-        const rejoin = try std.fmt.allocPrint(allocator, "{s}{s}{s}{s}{s}", components);
+        const rejoin = try std.fmt.allocPrint(allocator, "{s}{s}{s}{s}{s}", .{ raw_scheme, raw_authority, raw_path, raw_query, raw_fragment });
         defer allocator.free(rejoin);
         if (!mem.eql(u8, rejoin, fuzz_in))
-            fail("raw components concatenated {s} does not equal original input {s}", .{ rejoin, fuzz_in });
+            fail("raw components concatenated {s} do not equal original input {s}", .{ rejoin, fuzz_in });
     }
 
     // scheme is the only required component
-    if (!mem.endsWith(u8, ur.raw_scheme, ":"))
-        fail("raw scheme {s} does not end with a colon character", .{ur.raw_scheme});
+    if (!mem.endsWith(u8, raw_scheme, ":"))
+        fail("raw scheme {s} does not end with a colon character", .{raw_scheme});
 
-    if (ur.raw_authority.len != 0) {
-        if (!mem.startsWith(u8, ur.raw_authority, "//"))
-            fail("raw authority {s} does not start with two slashes", .{ur.raw_authority});
+    if (raw_authority.len != 0) {
+        if (!mem.startsWith(u8, raw_authority, "//"))
+            fail("raw authority {s} does not start with two slashes", .{raw_authority});
 
         // subcomponents
-        if (ur.raw_userinfo.len != 0 and !mem.endsWith(u8, ur.raw_userinfo, "@"))
-            fail("raw userinfo {s} does not end with an at character", .{ur.raw_userinfo});
-        if (ur.raw_port.len != 0 and !mem.startsWith(u8, ur.raw_port, ":"))
-            fail("raw port {s} does not start with a colon character", .{ur.raw_port});
+        if (raw_userinfo.len != 0 and !mem.endsWith(u8, raw_userinfo, "@"))
+            fail("raw userinfo {s} does not end with an at character", .{raw_userinfo});
+        if (raw_port.len != 0 and !mem.startsWith(u8, raw_port, ":"))
+            fail("raw port {s} does not start with a colon character", .{raw_port});
 
-        const auth_components = .{ ur.raw_userinfo, ur.raw_host, ur.raw_port };
+        const auth_components = .{ raw_userinfo, raw_host, raw_port };
         const reformat = try std.fmt.allocPrint(allocator, "//{s}{s}{s}", auth_components);
         defer allocator.free(reformat);
-        if (!mem.eql(u8, reformat, ur.raw_authority))
-            fail("raw authority components reformatted {s} do not equal raw authority {s}", .{ reformat, ur.raw_authority });
+        if (!mem.eql(u8, reformat, raw_authority))
+            fail("raw authority components reformatted {s} do not equal raw authority {s}", .{ reformat, raw_authority });
     } else {
-        if (ur.raw_userinfo.len != 0)
-            fail("raw userinfo {s} not zero with zero raw authority", .{ur.raw_userinfo});
-        if (ur.raw_host.len != 0)
-            fail("raw host {s} not zero with zero raw authority", .{ur.raw_host});
-        if (ur.raw_port.len != 0)
-            fail("raw port {s} not zero with zero raw authority", .{ur.raw_port});
+        if (raw_userinfo.len != 0)
+            fail("raw userinfo {s} not zero with zero raw authority", .{raw_userinfo});
+        if (raw_host.len != 0)
+            fail("raw host {s} not zero with zero raw authority", .{raw_host});
+        if (raw_port.len != 0)
+            fail("raw port {s} not zero with zero raw authority", .{raw_port});
     }
 
-    if (ur.raw_path.len != 0 and ur.raw_authority.len != 0 and !mem.startsWith(u8, ur.raw_path, "/"))
-        fail("raw path {s} with authority presence does not start with slash character", .{ur.raw_path});
-    if (ur.raw_query.len != 0 and !mem.startsWith(u8, ur.raw_query, "?"))
-        fail("raw query {s} does not start with questionmark character", .{ur.raw_query});
-    if (ur.raw_fragment.len != 0 and !mem.startsWith(u8, ur.raw_fragment, "#"))
-        fail("raw fragment {s} does not start with hash character", .{ur.raw_fragment});
+    if (raw_path.len != 0 and raw_authority.len != 0 and !mem.startsWith(u8, raw_path, "/"))
+        fail("raw path {s} with authority presence does not start with slash character", .{raw_path});
+    if (raw_query.len != 0 and !mem.startsWith(u8, raw_query, "?"))
+        fail("raw query {s} does not start with questionmark character", .{raw_query});
+    if (raw_fragment.len != 0 and !mem.startsWith(u8, raw_fragment, "#"))
+        fail("raw fragment {s} does not start with hash character", .{raw_fragment});
 }
 
 // VerifyEscapeMatch requires a verifyConstraints pass.
 fn verifyEscapeMatch(ur: Urview) !void {
     var s = try ur.scheme(allocator);
-    if (!ascii.eqlIgnoreCase(ur.raw_scheme[0 .. ur.raw_scheme.len - 1], s))
-        fail("escaped scheme {s} does not equal raw scheme {s} in lower-case excluding colon", .{ s, ur.raw_scheme });
+    if (!ascii.eqlIgnoreCase(s, mem.trimRight(u8, ur.rawScheme(), ":")))
+        fail("escaped scheme {s} does not equal raw scheme {s} in lower-case excluding colon", .{ s, ur.rawScheme() });
     allocator.free(s);
 
     var u = try ur.userinfo(allocator);
-    if (ur.hasUserinfo(u) != (ur.raw_userinfo.len != 0))
-        fail("escaped user {s} is not matched by raw userinfo {s}", .{ u, ur.raw_userinfo });
+    if (ur.equalsUserinfo(u) != ur.hasUserinfo())
+        fail("escaped user {s} is not matched by raw userinfo {s}", .{ u, ur.rawUserinfo() });
     allocator.free(u);
 
     var h = try ur.host(allocator);
-    if (ur.hasHost(h) != (ur.raw_authority.len != 0))
-        fail("escaped host {s} is not matched by raw {s}, authority {s}", .{ h, ur.raw_host, ur.raw_authority });
+    if (ur.equalsHost(h) != ur.hasAuthority())
+        fail("escaped host {s} is not matched by raw {s}, authority {s}", .{ h, ur.rawHost(), ur.rawAuthority() });
     allocator.free(h);
 
     var p = try ur.path(allocator);
-    if (!ur.hasPath(p))
-        fail("escaped path {s} is not matched by raw {s}", .{ p, ur.raw_path });
+    if (!ur.equalsPath(p))
+        fail("escaped path {s} is not matched by raw {s}", .{ p, ur.rawPath() });
     allocator.free(p);
 
     var q = try ur.query(allocator);
-    if (ur.hasQuery(q) != (ur.raw_query.len != 0))
-        fail("escaped query {s} is not matched by raw {s}", .{ q, ur.raw_query });
+    if (ur.equalsQuery(q) != ur.hasQuery())
+        fail("escaped query {s} is not matched by raw {s}", .{ q, ur.rawQuery() });
     allocator.free(q);
 
     var f = try ur.fragment(allocator);
-    if (ur.hasFragment(f) != (ur.raw_fragment.len != 0))
-        fail("escaped fragment {s} is not matched by raw {s}", .{ f, ur.raw_fragment });
+    if (ur.equalsFragment(f) != ur.hasFragment())
+        fail("escaped fragment {s} is not matched by raw {s}", .{ f, ur.rawFragment() });
     allocator.free(f);
 }

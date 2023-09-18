@@ -67,12 +67,12 @@ pub fn main() !void {
         std.log.err("invalid URL result {s}: {}", .{ url, err });
         std.os.exit(1);
     };
-    // validate lossless per component
 
-    if ((view.raw_userinfo.len == 0) != (ur.userinfo == null)) {
+    // validate lossless per component
+    if (view.hasUserinfo() != (ur.userinfo != null)) {
         std.log.err("fuzz with userinfo {} became {} in URL {s}", .{
             ur.userinfo != null,
-            view.raw_userinfo.len != 0,
+            view.hasUserinfo(),
             url,
         });
         std.os.exit(1);
@@ -91,47 +91,53 @@ pub fn main() !void {
         std.os.exit(1);
     }
 
-    if ((view.raw_port.len == 0) != (ur.port == null)) {
+    if (view.hasPort() != (ur.port != null)) {
         std.log.err("fuzz with port {} became {} in URL {s}", .{
             ur.port != null,
-            view.raw_port.len != 0,
+            view.hasPort(),
             url,
         });
         std.os.exit(1);
     }
-    if (ur.port) |n| {
-        if (view.port() != n) {
-            std.log.err("fuzz with port {d} became {s} in URL {s}", .{ n, view.raw_port, url });
+    if (ur.port) |want| {
+        const got = view.port();
+        if (got != want) {
+            std.log.err("fuzz with port {d} became {d} in URL {s}", .{ want, got, url });
             std.os.exit(1);
         }
     }
 
-    if (view.raw_path.len != ur.segments.len) {
-        std.log.err("fuzz with path {s} became {s} in URL {s}", .{ ur.segments, view.raw_path, url });
+    if (view.hasPath() != (ur.segments.len != 0)) {
+        std.log.err("fuzz with path {} became {} in URL {s}", .{
+            ur.segments.len != 0,
+            view.hasPath(),
+            url,
+        });
         std.os.exit(1);
     }
-    if (view.raw_path.len != 0) {
-        const p = try view.path(allocator);
-        if (p.len == 0 or !mem.eql(u8, p[1..], try mem.join(allocator, "/", ur.segments))) {
-            std.log.err("fuzz with path {s} became {s} in URL {s}", .{ ur.segments, view.raw_path, url });
+    if (ur.segments.len != 0) {
+        const want = try mem.join(allocator, "/", ur.segments);
+        const got = try view.path(allocator);
+        if (got.len == 0 or got[0] != '/' or !mem.eql(u8, got[1..], want)) {
+            std.log.err("fuzz with path {s} became {s} in URL {s}", .{ ur.segments, view.rawPath(), url });
             std.os.exit(1);
         }
     }
 
-    if (view.raw_query.len != ur.params.len) {
+    if (view.hasQuery() != (ur.params.len != 0)) {
         std.log.err("fuzz with parameters {} became {} in URL {s}", .{
             ur.params.len != 0,
-            view.raw_query.len != 0,
+            view.hasQuery(),
             url,
         });
         std.os.exit(1);
     }
-    // TODO(pascaldekloe): query paramater parser
+    // TODO(pascaldekloe): query parameter parser
 
-    if ((view.raw_fragment.len == 0) != (ur.fragment == null)) {
+    if (view.hasFragment() != (ur.fragment != null)) {
         std.log.err("fuzz with fragment {} became {} in URL {s}", .{
             ur.fragment != null,
-            view.raw_fragment.len != 0,
+            view.hasFragment(),
             url,
         });
         std.os.exit(1);

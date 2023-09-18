@@ -37,7 +37,7 @@ pub fn main() !void {
         std.log.err("out of memory on {d} bytes of input with {d} bytes of space", .{ fuzz_in.len, buf.len });
         std.os.exit(137);
     };
-    if (!ur.hasPath(want)) {
+    if (!ur.equalsPath(want)) {
         std.log.err("fuzz input does not match path {s}", .{want});
         std.os.exit(1);
     }
