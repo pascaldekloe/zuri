@@ -111,8 +111,7 @@ pub fn hasFragment(ur: Urview) bool {
     return ur.fragment_offset < ur.uri_size;
 }
 
-/// Scheme returns the component normalized to lower-case. Caller owns the
-/// retured memory.
+/// Scheme returns the component in lower-case. Caller owns the retured memory.
 pub fn scheme(ur: Urview, m: Allocator) error{OutOfMemory}![]u8 {
     const raw = ur.uri_ptr[0 .. ur.authority_offset - 1];
 
@@ -164,13 +163,13 @@ pub fn equalsUserinfo(ur: Urview, match: []const u8) bool {
     return equalsString(ur.uri_ptr[offset..end], match);
 }
 
-/// Host returns the component with any and all percent-encodings resolved. None
-/// of the applicable standards put any constraints on the byte content. The
-/// return may or may not be a valid UTF-8 string. Caller owns the returned
-/// memory.
+/// Host returns the component with any and all percent-encodings resolved in
+/// lower-case. None of the applicable standards put any constraints on the byte
+/// content. The return may or may not be a valid UTF-8 string. Caller owns the
+/// returned memory.
 pub fn host(ur: Urview, m: Allocator) error{OutOfMemory}![]u8 {
     if (ur.host_offset >= ur.port_offset) return "";
-    return resolvePercentEncodings(ur.uri_ptr[ur.host_offset..ur.port_offset], m);
+    return resolvePercentEncodingsToLower(ur.uri_ptr[ur.host_offset..ur.port_offset], m);
 }
 
 /// EqualsHost returns whether the component with any and all percent-encodings
@@ -1312,41 +1311,57 @@ fn verifyFragment(s: []const u8) ParseError!void {
     }
 }
 
-fn resolvePercentEncodings(raw: []const u8, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
-    // count output size
-    var n: usize = 0;
-    var i: usize = 0;
+fn resolvePercentEncodings(raw: []const u8, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    return resolvePercentEncodingsWithToLower(raw, false, m);
+}
+
+fn resolvePercentEncodingsToLower(raw: []const u8, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    return resolvePercentEncodingsWithToLower(raw, true, m);
+}
+
+fn resolvePercentEncodingsWithToLower(raw: []const u8, comptime toLower: bool, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+    var i: usize = 0; // raw index
+    var n: usize = 0; // output count [octets]
     while (raw.len - i > 2) : (n += 1)
         i += if (raw[i] == '%') 3 else 1;
     n += raw.len - i;
 
     // output
-    var b = try allocator.alloc(u8, n);
-    if (b.len == raw.len) {
-        @memcpy(b, raw);
-        return b;
-    }
+    if (!toLower and n >= raw.len) return m.dupe(u8, raw);
+    var b = try m.alloc(u8, n);
 
     // write pointer
     var p = b.ptr;
     i = 0;
-    while (raw.len - i > 2) : (p += 1) {
-        if (raw[i] != '%') {
-            p[0] = raw[i];
-            i += 1;
-        } else {
-            p[0] = (hex_table[raw[i + 1]] << 4) | hex_table[raw[i + 2]];
-            i += 3;
+    while (raw.len - i > 2) : (i += 1) {
+        var c = raw[i];
+        if (c == '%') {
+            c = (hex_table[raw[i + 1]] << 4) | hex_table[raw[i + 2]];
+            i += 2;
         }
+        if (toLower and c <= 'Z' and c >= 'A') c += 'a' - 'A';
+        p[0] = c;
+        p += 1;
     }
 
-    while (i < raw.len) {
+    while (i < raw.len) : (i += 1) {
         p[0] = raw[i];
         p += 1;
-        i += 1;
     }
-
     return b;
+}
+
+test "Case Normalization" {
+    // “URI Generic Syntax” RFC 3986, subsection 6.2.2.1
+    const ur = try parse("HTTP://www.EXAMPLE.com/");
+
+    const s = ur.scheme(test_allocator) catch "<out of memory>";
+    defer test_allocator.free(s);
+    try expectEqualStrings("http", s);
+
+    const h = ur.host(test_allocator) catch "<out of memory>";
+    defer test_allocator.free(h);
+    try expectEqualStrings("www.example.com", h);
 }
 
 fn verifyProcentEncoding(s: []const u8, i: usize) ParseError!void {
