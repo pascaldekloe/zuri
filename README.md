@@ -12,10 +12,21 @@ This is free and unencumbered software released into the
 [![CI](https://github.com/pascaldekloe/zuri/actions/workflows/ci.yml/badge.svg)](https://github.com/pascaldekloe/zuri/actions/workflows/ci.yml)
 
 
-## Interface
+## Library
 
-The API is split in a parsing `Urview.zig`, and the formatting `Urlink.zig` and
-`Urname.zig`.
+Header file `zuri.h` describes libzuri in full. See `demo.c` for a quick start.
+
+    make libzuri.a
+    sudo make install PREFIX=/usr/local
+
+Such installation can be undone with `sudo make uninstall PREFIX=/usr/local`.
+
+
+## Zig Interface
+
+The Zig API is split in a parsing `Urview.zig`, a formatting `Urlink.zig` and a
+formatting `Urname.zig`. Run `make Urview-doc Urlink-doc Urname-doc` to see the
+respective `index.html` files.
 
 
 ### Urview.zig
@@ -63,28 +74,6 @@ fn newWebUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error
 ```
 
 Urlink contains components for URL construction.
-
-```zig
-userinfo: ?[]const u8 = null,
-
-/// Host is either a registered name or an IPv4 address. Use newIp6Url for IPv6
-/// addresses.
-host: []const u8 = "",
-
-/// The default port number for the respective protocol should be omitted, i.e.,
-/// specify non-standard values only.
-port: ?u16 = null,
-
-/// Path segments are separated by a slash character ("/"), including a leading
-/// one [root]. Put an empty string last for a tailing slash.
-segments: []const []const u8 = &[0][]u8{},
-
-/// Parameters append to the query component in order of appearance, in the form
-/// of: key ?( "=" value ) *( "&" key ?( "=" value ))
-params: []const Param = &.{},
-
-fragment: ?[]const u8 = null,
-```
 
 
 ### Urname.zig

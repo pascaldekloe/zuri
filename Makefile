@@ -1,8 +1,18 @@
+# installation location
+PREFIX ?= /usr/local
+
 .PHONY: test
-test: Urlink.zig Urname.zig Urview.zig
+test: Urlink.zig Urname.zig Urview.zig demo
 	zig test Urlink.zig
 	zig test Urname.zig
 	zig test Urview.zig
+	./demo
+
+demo: demo.c libzuri.a zuri.h
+	clang -o $@ -L. -l zuri demo.c
+
+libzuri.a: zuri.zig
+	zig build-lib -O ReleaseFast zuri.zig
 
 .PHONY: bench
 bench: zig-out
@@ -73,3 +83,19 @@ clean:
 	rm -fr zig-cache zig-out
 	rm -fr Urlink-doc Urname-doc Urview-doc
 	rm -f bench.asm
+	rm -f libzuri.a libzuri.a.o
+	rm -f demo
+
+.PHONY: install
+install: libzuri.a zuri-config.cmake
+	install -o 0 -g 0 -m 755 -d $(PREFIX)/include
+	install -o 0 -g 0 -m 644 zuri.h $(PREFIX)/include
+	install -o 0 -g 0 -m 755 -d $(PREFIX)/lib/cmake/zuri
+	install -o 0 -g 0 -m 644 libzuri.a $(PREFIX)/lib
+	install -o 0 -g 0 -m 644 zuri-config.cmake $(PREFIX)/lib/cmake/zuri
+
+.PHONY: uninstall
+uninstall:
+	rm -fi $(PREFIX)/include/zuri.h
+	rm -fi $(PREFIX)/lib/libzuri.a
+	rm -fir $(PREFIX)/lib/cmake/zuri
