@@ -55,11 +55,11 @@ Run `make Urlink-doc` to see the full interface documentation at `Urlink-doc/ind
 /// NewUrl returns a valid URL/URI. Caller owns the memory.
 fn newUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![]u8
 
-/// NewSearchUrl is like newUrl, yet it encodes query parameters conform the
+/// NewWebUrl is like newUrl, yet it encodes query parameters conform the
 /// application/x-www-form-urlencoded convention, i.e., space characters (" ")
 /// are written as plus characters ("+") rather than percent encoding "%20". Use
 /// is intended for the "http", "https", "ws" and "wss" schemes.
-fn newSearchUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![]u8
+fn newWebUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![]u8
 ```
 
 Urlink contains components for URL construction.
