@@ -5,7 +5,6 @@ const parseInt = std.fmt.parseInt;
 const Allocator = std.mem.Allocator;
 
 const test_allocator = std.testing.allocator;
-const failing_allocator = std.testing.failing_allocator;
 const expect = std.testing.expect;
 const expectFmt = std.testing.expectFmt;
 const expectEqual = std.testing.expectEqual;
@@ -112,10 +111,9 @@ pub fn hasFragment(ur: Urview) bool {
 }
 
 /// Scheme returns the component in lower-case. Caller owns the retured memory.
-pub fn scheme(ur: Urview, m: Allocator) error{OutOfMemory}![]u8 {
+pub fn scheme(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8 {
     const raw = ur.uri_ptr[0 .. ur.authority_offset - 1];
-
-    var b = try m.alloc(u8, raw.len);
+    var b = try m.allocSentinel(u8, raw.len, 0);
     for (raw, 0..) |c, i| {
         b[i] = if (c < 'A' or c > 'Z') c else c + ('a' - 'A');
     }
@@ -147,10 +145,10 @@ pub fn equalsScheme(ur: Urview, comptime match: []const u8) bool {
 /// None of the applicable standards put any constraints on the byte content.
 /// The return may or may not be a valid UTF-8 string. Caller owns the returned
 /// memory.
-pub fn userinfo(ur: Urview, m: Allocator) error{OutOfMemory}![]u8 {
+pub fn userinfo(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8 {
     const offset = ur.userinfo_offset;
     const end = ur.host_offset - 1; // trim '@'
-    if (offset >= end) return "";
+    if (offset >= end) return m.allocSentinel(u8, 0, 0);
     return resolvePercentEncodings(ur.uri_ptr[offset..end], m);
 }
 
@@ -167,8 +165,8 @@ pub fn equalsUserinfo(ur: Urview, match: []const u8) bool {
 /// lower-case. None of the applicable standards put any constraints on the byte
 /// content. The return may or may not be a valid UTF-8 string. Caller owns the
 /// returned memory.
-pub fn host(ur: Urview, m: Allocator) error{OutOfMemory}![]u8 {
-    if (ur.host_offset >= ur.port_offset) return "";
+pub fn host(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8 {
+    if (ur.host_offset >= ur.port_offset) return m.allocSentinel(u8, 0, 0);
     return resolvePercentEncodingsToLower(ur.uri_ptr[ur.host_offset..ur.port_offset], m);
 }
 
@@ -191,9 +189,9 @@ pub fn port(ur: Urview) u16 {
 /// of the applicable standards put any constraints on the byte content. The
 /// return may or may not be a valid UTF-8 string. Caller owns the returned
 /// memory.
-pub fn path(ur: Urview, m: Allocator) error{OutOfMemory}![]u8 {
+pub fn path(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8 {
     const raw = ur.rawPath();
-    if (raw.len == 0) return "";
+    if (raw.len == 0) return m.allocSentinel(u8, 0, 0);
     return resolvePercentEncodings(raw, m);
 }
 
@@ -218,13 +216,10 @@ pub fn equalsPath(ur: Urview, match: []const u8) bool {
 ///    placeholder in text for an otherwise unspecified object”
 ///  • Empty "" simply drops percent-encoded slashes
 ///
-pub fn pathNorm(ur: *const Urview, comptime encodedSlashOut: []const u8, m: Allocator) error{OutOfMemory}![]u8 {
+pub fn pathNorm(ur: *const Urview, comptime encodedSlashOut: []const u8, m: Allocator) error{OutOfMemory}![:0]u8 {
     const raw = ur.rawPath();
-    if (raw.len < 2) {
-        // no normalization possible
-        if (raw.len == 0) return "";
-        return m.dupe(u8, raw);
-    }
+    // normalization not possible with just one character
+    if (raw.len < 2) return m.dupeZ(u8, raw);
 
     // first count output octets for memory allocation
     var size: usize = 0;
@@ -328,7 +323,7 @@ pub fn pathNorm(ur: *const Urview, comptime encodedSlashOut: []const u8, m: Allo
     }
 
     // output string & write pointer
-    var out = try m.alloc(u8, size);
+    var out = try m.allocSentinel(u8, size, 0);
     var p = out.ptr + size;
 
     // reset for second/final pass
@@ -591,10 +586,10 @@ test "Percent-Encoded Slash Trim" {
 /// None of the applicable standards put any constraints on the byte content.
 /// The return may or may not be a valid UTF-8 string. Caller owns the retured
 /// memory.
-pub fn query(ur: Urview, m: Allocator) error{OutOfMemory}![]u8 {
+pub fn query(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8 {
     const offset = ur.query_offset + 1; // trim '?'
     const end = ur.fragment_offset;
-    if (offset >= end) return "";
+    if (offset >= end) return m.allocSentinel(u8, 0, 0);
     return resolvePercentEncodings(ur.uri_ptr[offset..end], m);
 }
 
@@ -611,10 +606,10 @@ pub fn equalsQuery(ur: Urview, match: []const u8) bool {
 /// None of the applicable standards put any constraints on the byte content.
 /// The return may or may not be a valid UTF-8 string. Caller owns the returned
 /// memory.
-pub fn fragment(ur: Urview, m: Allocator) error{OutOfMemory}![]u8 {
+pub fn fragment(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8 {
     const offset = ur.fragment_offset + 1; // trim '#'
     const end = ur.uri_size;
-    if (offset >= end) return "";
+    if (offset >= end) return m.allocSentinel(u8, 0, 0);
     return resolvePercentEncodings(ur.uri_ptr[offset..end], m);
 }
 
@@ -901,12 +896,15 @@ test "Absent" {
     const s = try ur.scheme(test_allocator);
     defer test_allocator.free(s);
     try expectEqualStrings("x11", s);
-    try expectEqualStrings("", try ur.userinfo(failing_allocator));
-    try expectEqualStrings("", try ur.host(failing_allocator));
+
+    var buf: [5]u8 = undefined;
+    var fix = std.heap.FixedBufferAllocator.init(&buf);
+    try expectEqualStrings("", try ur.userinfo(fix.allocator()));
+    try expectEqualStrings("", try ur.host(fix.allocator()));
     try expectEqual(@as(u16, 0), ur.port());
-    try expectEqualStrings("", try ur.path(failing_allocator));
-    try expectEqualStrings("", try ur.query(failing_allocator));
-    try expectEqualStrings("", try ur.fragment(failing_allocator));
+    try expectEqualStrings("", try ur.path(fix.allocator()));
+    try expectEqualStrings("", try ur.query(fix.allocator()));
+    try expectEqualStrings("", try ur.fragment(fix.allocator()));
 }
 
 test "Empty" {
@@ -935,11 +933,13 @@ test "Empty" {
     try expect(ur.equalsFragment(""));
     try expect(!ur.equalsFragment("#"));
 
-    try expectEqualStrings("", try ur.userinfo(failing_allocator));
-    try expectEqualStrings("", try ur.host(failing_allocator));
-    try expectEqualStrings("", try ur.path(failing_allocator));
-    try expectEqualStrings("", try ur.query(failing_allocator));
-    try expectEqualStrings("", try ur.fragment(failing_allocator));
+    var buf: [5]u8 = undefined;
+    var fix = std.heap.FixedBufferAllocator.init(&buf);
+    try expectEqualStrings("", try ur.userinfo(fix.allocator()));
+    try expectEqualStrings("", try ur.host(fix.allocator()));
+    try expectEqualStrings("", try ur.path(fix.allocator()));
+    try expectEqualStrings("", try ur.query(fix.allocator()));
+    try expectEqualStrings("", try ur.fragment(fix.allocator()));
 }
 
 // Parse all components after raw_scheme, which can be none.
@@ -1311,15 +1311,15 @@ fn verifyFragment(s: []const u8) ParseError!void {
     }
 }
 
-fn resolvePercentEncodings(raw: []const u8, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+fn resolvePercentEncodings(raw: []const u8, m: std.mem.Allocator) error{OutOfMemory}![:0]u8 {
     return resolvePercentEncodingsWithToLower(raw, false, m);
 }
 
-fn resolvePercentEncodingsToLower(raw: []const u8, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+fn resolvePercentEncodingsToLower(raw: []const u8, m: std.mem.Allocator) error{OutOfMemory}![:0]u8 {
     return resolvePercentEncodingsWithToLower(raw, true, m);
 }
 
-fn resolvePercentEncodingsWithToLower(raw: []const u8, comptime toLower: bool, m: std.mem.Allocator) error{OutOfMemory}![]u8 {
+fn resolvePercentEncodingsWithToLower(raw: []const u8, comptime toLower: bool, m: std.mem.Allocator) error{OutOfMemory}![:0]u8 {
     var i: usize = 0; // raw index
     var n: usize = 0; // output count [octets]
     while (raw.len - i > 2) : (n += 1)
@@ -1327,8 +1327,8 @@ fn resolvePercentEncodingsWithToLower(raw: []const u8, comptime toLower: bool, m
     n += raw.len - i;
 
     // output
-    if (!toLower and n >= raw.len) return m.dupe(u8, raw);
-    var b = try m.alloc(u8, n);
+    if (!toLower and n >= raw.len) return m.dupeZ(u8, raw);
+    var b = try m.allocSentinel(u8, n, 0);
 
     // write pointer
     var p = b.ptr;
