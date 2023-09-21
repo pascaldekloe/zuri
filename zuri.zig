@@ -1,5 +1,5 @@
 // A subsection of the Zig API gets exposed as a library in here.
-// See the uri.h for documentation.
+// See uri.h for the definition/documentation.
 
 const Urview = @import("./Urview.zig");
 const Urlink = @import("./Urlink.zig");
@@ -99,8 +99,16 @@ export fn zuri_parse2k(dst: *zuri2k, uri: [*]const c_char, len: usize) c_uint {
 }
 
 export fn zuri_read2k(src: *zuri2k, buf: [*]c_char, cap: usize) usize {
-    var ur = Urlink{};
     if (@bitSizeOf(c_char) != 8) @compileError("need 8-bit bytes");
+    const scheme = @as([*]const u8, @ptrCast(src.scheme_ptr))[0..src.scheme_len];
+    if (scheme.len == 0) return 1;
+    for (scheme, 0..) |c, i| switch (c) {
+        'A'...'Z', 'a'...'z' => continue,
+        '0'...'9', '+', '-', '.' => if (i == 0) return 1,
+        else => return 1,
+    };
+
+    var ur = Urlink{};
     if (src.userinfo_ptr) |p| ur.userinfo = @as([*]const u8, @ptrCast(p))[0..src.userinfo_len];
     if (src.host_ptr) |p| ur.host = @as([*]const u8, @ptrCast(p))[0..src.host_len];
     if (src.port != 0) ur.port = src.port;
@@ -111,8 +119,14 @@ export fn zuri_read2k(src: *zuri2k, buf: [*]c_char, cap: usize) usize {
     // Write to buffer as an allocotar.
     // No data written when output exceeds the capacity.
     var p: [*]u8 = @ptrCast(buf);
-    var fix = std.heap.FixedBufferAllocator.init(p[0..cap]);
+    var fix = std.heap.FixedBufferAllocator.init(p[scheme.len - 1 .. cap]);
 
-    var s = ur.newUrl("http", fix.allocator()) catch return 0;
+    var s = ur.newUrl("z", fix.allocator()) catch return 0;
+    for (scheme, 0..) |c, i| buf[i] = switch (c) {
+        // “… should only produce lowercase scheme names for consistency.”
+        // — RFC 3986, subsection 3.1
+        'A'...'Z' => @intCast(c + ('a' - 'A')),
+        else => @intCast(c),
+    };
     return @intCast(s.len);
 }

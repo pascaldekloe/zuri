@@ -1,12 +1,11 @@
 #include <stddef.h>
-#include <stdint.h>
 
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// Handle URIs with up to 2 KiB in size.
+// Handle URIs with a 2 KiB buffer.
 struct zuri2k {
 	// Scheme is the only required component in a URI.
 	const char* scheme_ptr;
@@ -43,12 +42,6 @@ typedef unsigned int zuri_error;
 zuri_error
 zuri_parse2k(struct zuri2k *dst, const char *uri, size_t len);
 
-// Encode src into buf, up to cap in size. The return reports the actual amount
-// written to buf. The result is zero only when cap is less than the URI output.
-size_t
-zuri_read2k(const struct zuri2k *src, char *buf, size_t cap);
-
-
 // Error names are tokens in camel-case. See ParseError in Urview.zig for a
 // detailed description on each.
 //
@@ -65,6 +58,16 @@ zuri_read2k(const struct zuri2k *src, char *buf, size_t cap);
 //
 const char*
 zuri_error_name(zuri_error err);
+
+
+#define ZURI_BUFF_TOO_SMALL 0
+#define ZURI_ILLEGAL_SCHEME 1
+
+// Encode src into buf, up to cap in size. The smallest URIs possible are made
+// of two chars ("x:"). Return zero and one are reserved for the error codes:
+// ZURI_BUFF_TOO_SMALL and ZURI_ILLEGAL_SCHEME.
+size_t
+zuri_read2k(const struct zuri2k *src, char *buf, size_t cap);
 
 
 #ifdef __cplusplus
