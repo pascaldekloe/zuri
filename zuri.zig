@@ -128,5 +128,5 @@ export fn zuri_read2k(src: *zuri2k, buf: [*]c_char, cap: usize) usize {
         'A'...'Z' => @intCast(c + ('a' - 'A')),
         else => @intCast(c),
     };
-    return @intCast(s.len);
+    return @intCast(s.len + scheme.len - 1);
 }
