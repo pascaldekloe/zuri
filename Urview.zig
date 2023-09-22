@@ -177,12 +177,18 @@ pub fn equalsHost(ur: Urview, match: []const u8) bool {
     return equalsString(ur.rawHost(), match);
 }
 
-/// Port returns the number with zero for absent or out-of-bounds.
-pub fn port(ur: Urview) u16 {
+/// Port returns the number, with null for absence or out-of-bounds.
+pub fn port(ur: Urview) ?u16 {
     const offset = ur.port_offset + 1; // trim ':'
     const end = ur.path_offset;
-    if (offset >= end) return 0;
-    return parseInt(u16, ur.uri_ptr[offset..end], 10) catch 0;
+    if (offset >= end) return null;
+
+    var n: usize = 0;
+    for (offset..end) |i| {
+        n = (n * 10) + (ur.uri_ptr[i] - '0');
+        if (n > 0xffff) return null;
+    }
+    return @intCast(n);
 }
 
 /// Path returns the component with any and all percent-encodings resolved. None
@@ -849,13 +855,13 @@ test "Tricky" {
 }
 
 test "Bloat" {
-    const ur = try parse("x-odbc://admin:fe:main@[0::192.168.57.2]:5432/cms?SELECT%20*%20FROM%20users;#80%E2%80%93160");
+    const ur = try parse("x-odbc://admin:fe:main@[0::192.168.57.2]:0005432/cms?SELECT%20*%20FROM%20users;#80%E2%80%93160");
 
     try expectEqualStrings("x-odbc:", ur.rawScheme());
-    try expectEqualStrings("//admin:fe:main@[0::192.168.57.2]:5432", ur.rawAuthority());
+    try expectEqualStrings("//admin:fe:main@[0::192.168.57.2]:0005432", ur.rawAuthority());
     try expectEqualStrings("admin:fe:main@", ur.rawUserinfo());
     try expectEqualStrings("[0::192.168.57.2]", ur.rawHost());
-    try expectEqualStrings(":5432", ur.rawPort());
+    try expectEqualStrings(":0005432", ur.rawPort());
     try expectEqualStrings("/cms", ur.rawPath());
     try expectEqualStrings("?SELECT%20*%20FROM%20users;", ur.rawQuery());
     try expectEqualStrings("#80%E2%80%93160", ur.rawFragment());
@@ -866,7 +872,7 @@ test "Bloat" {
     try expect(ur.equalsHost("[0::192.168.57.2]"));
     try expect(!ur.equalsHost("0::192.168.57.2"));
     try expect(!ur.equalsHost("192.168.57.2"));
-    try expectEqual(@as(u16, 5432), ur.port());
+    try expectEqual(@as(?u16, 5432), ur.port());
     try expect(ur.equalsPath("/cms"));
     try expect(!ur.equalsPath("cms"));
     try expect(ur.equalsFragment("80–160"));
@@ -889,7 +895,7 @@ test "Absent" {
     try expect(!ur.equalsScheme("ssh"));
     try expect(!ur.equalsUserinfo(""));
     try expect(!ur.equalsHost(""));
-    try expect(ur.port() == 0);
+    try expectEqual(@as(?u16, null), ur.port());
     try expect(ur.equalsPath(""));
     try expect(!ur.equalsFragment(""));
 
@@ -901,7 +907,7 @@ test "Absent" {
     var fix = std.heap.FixedBufferAllocator.init(&buf);
     try expectEqualStrings("", try ur.userinfo(fix.allocator()));
     try expectEqualStrings("", try ur.host(fix.allocator()));
-    try expectEqual(@as(u16, 0), ur.port());
+    try expectEqual(@as(?u16, null), ur.port());
     try expectEqualStrings("", try ur.path(fix.allocator()));
     try expectEqualStrings("", try ur.query(fix.allocator()));
     try expectEqualStrings("", try ur.fragment(fix.allocator()));
@@ -925,7 +931,7 @@ test "Empty" {
     try expect(!ur.equalsUserinfo("@"));
     try expect(ur.equalsHost(""));
     try expect(!ur.equalsHost("//@"));
-    try expect(ur.port() == 0);
+    try expectEqual(@as(?u16, null), ur.port());
     try expect(ur.equalsPath(""));
     try expect(!ur.equalsPath("/"));
     try expect(ur.equalsQuery(""));

@@ -65,7 +65,7 @@ export fn zuri_parse2k(dst: *zuri2k, uri: [*]const c_char, len: usize) c_uint {
         dst.host_ptr = @ptrCast(h);
         dst.host_len = h.len;
 
-        dst.port = ur.port();
+        dst.port = if (ur.port()) |n| n else 0;
     }
 
     if (!ur.hasPath()) {

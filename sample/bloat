@@ -1,1 +1,1 @@
-x-odbc://admin:fe:main@[0::192.168.57.2]:5432/cms?SELECT%20*%20FROM%20users;#80%E2%80%93160
+x-odbc://admin:fe:main@[0::192.168.57.2]:0005432/cms?SELECT%20*%20FROM%20users;#80%E2%80%93160

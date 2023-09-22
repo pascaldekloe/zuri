@@ -100,10 +100,13 @@ pub fn main() !void {
         std.os.exit(1);
     }
     if (ur.port) |want| {
-        const got = view.port();
-        if (got != want) {
-            std.log.err("fuzz with port {d} became {d} in URL {s}", .{ want, got, url });
-            std.os.exit(1);
+        if (view.port()) |got| {
+            if (got != want) {
+                std.log.err("fuzz with port {d} became {d} in URL {s}", .{ want, got, url });
+                std.os.exit(1);
+            }
+        } else {
+            std.log.err("fuzz with port {d} became unparsable in URL {s}", .{ want, url });
         }
     }
 
