@@ -12,7 +12,7 @@ pub fn main() !void {
     const readn = try stdin.readAll(&readb);
     const fuzz_in: []const u8 = readb[0..readn];
 
-    var buf: [4 * readb.len + "urn:test:".len + "test:".len]u8 = undefined;
+    var buf: [4 * readb.len + "urn:test:".len + "test:".len + 1]u8 = undefined;
     var fix = std.heap.FixedBufferAllocator.init(&buf);
     var allocator = fix.allocator();
     const urn = Urname.newUrn("test", fuzz_in, "Ol", allocator) catch {

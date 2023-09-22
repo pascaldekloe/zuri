@@ -38,7 +38,7 @@ params: []const Param = &.{},
 fragment: ?[]const u8 = null,
 
 /// NewUrl returns a valid URL/URI. Caller owns the memory.
-pub fn newUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![]u8 {
+pub fn newUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![:0]u8 {
     return newUrlAsWeb(ur, scheme, false, m);
 }
 
@@ -46,11 +46,11 @@ pub fn newUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) erro
 /// application/x-www-form-urlencoded convention, i.e., space characters (" ")
 /// are written as plus characters ("+") rather than percent encoding "%20". Use
 /// is intended for the "http", "https", "ws" and "wss" schemes.
-pub fn newWebUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![]u8 {
+pub fn newWebUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![:0]u8 {
     return newUrlAsWeb(ur, scheme, true, m);
 }
 
-fn newUrlAsWeb(ur: *const Urlink, comptime scheme: []const u8, comptime asWeb: bool, m: Allocator) error{OutOfMemory}![]u8 {
+fn newUrlAsWeb(ur: *const Urlink, comptime scheme: []const u8, comptime asWeb: bool, m: Allocator) error{OutOfMemory}![:0]u8 {
     schemeCheck(scheme); // compile-time validation
 
     // buffer decimal port number
@@ -79,7 +79,7 @@ fn newUrlAsWeb(ur: *const Urlink, comptime scheme: []const u8, comptime asWeb: b
     size += ur.fragmentSize();
 
     // output + write pointer
-    var b = try m.alloc(u8, size);
+    var b = try m.allocSentinel(u8, size, 0);
     var p = b.ptr;
     inline for (scheme ++ "://") |c| {
         p[0] = c;
@@ -136,16 +136,16 @@ test "URL Construction" {
 }
 
 /// NewIp6Url is like newUrl, yet it uses the IPv6 address instead of the host string.
-pub fn newIp6Url(ur: *const Urlink, comptime scheme: []const u8, addr: [16]u8, m: Allocator) error{OutOfMemory}![]u8 {
+pub fn newIp6Url(ur: *const Urlink, comptime scheme: []const u8, addr: [16]u8, m: Allocator) error{OutOfMemory}![:0]u8 {
     return newIp6UrlAsWeb(ur, scheme, false, addr, m);
 }
 
 /// NewIp6WebUrl is like newWebUrl, yet it uses the IPv6 address instead of the host string.
-pub fn newIp6WebUrl(ur: *const Urlink, comptime scheme: []const u8, addr: [16]u8, m: Allocator) error{OutOfMemory}![]u8 {
+pub fn newIp6WebUrl(ur: *const Urlink, comptime scheme: []const u8, addr: [16]u8, m: Allocator) error{OutOfMemory}![:0]u8 {
     return newIp6UrlAsWeb(ur, scheme, true, addr, m);
 }
 
-fn newIp6UrlAsWeb(ur: *const Urlink, comptime scheme: []const u8, comptime asWeb: bool, addr: [16]u8, m: Allocator) error{OutOfMemory}![]u8 {
+fn newIp6UrlAsWeb(ur: *const Urlink, comptime scheme: []const u8, comptime asWeb: bool, addr: [16]u8, m: Allocator) error{OutOfMemory}![:0]u8 {
     schemeCheck(scheme); // compile-time validation
 
     const host_port_max = "[0000:0000:0000:0000:0000:0000:0000:0000]:65535".len;
@@ -161,7 +161,7 @@ fn newIp6UrlAsWeb(ur: *const Urlink, comptime scheme: []const u8, comptime asWeb
     size += ur.fragmentSize();
 
     // output + write pointer
-    var b = try m.alloc(u8, size);
+    var b = try m.allocSentinel(u8, size, 0);
     var p = b.ptr;
     inline for (scheme ++ "://") |c| {
         p[0] = c;

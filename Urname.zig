@@ -22,8 +22,8 @@ params: []const Param = &.{},
 
 fragment: ?[]const u8 = null,
 
-/// NewUri returns a valid URI. Caller owns the memory.
-pub fn newUri(ur: *const Urname, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![]u8 {
+/// NewUri returns a valid URI. Caller owns the returned memory.
+pub fn newUri(ur: *const Urname, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![:0]u8 {
     schemeCheck(scheme); // compile-time validation
 
     // count output bytes
@@ -35,7 +35,7 @@ pub fn newUri(ur: *const Urname, comptime scheme: []const u8, m: Allocator) erro
     if (ur.fragment) |s| size += fragmentSize(s);
 
     // output + write pointer
-    var b = try m.alloc(u8, size);
+    var b = try m.allocSentinel(u8, size, 0);
     var p = b.ptr;
     inline for (scheme ++ ":") |c| {
         p[0] = c;
@@ -75,7 +75,8 @@ test "URI Construction" {
 /// opts in percent-encoding for octets in the specifics string which would
 /// otherwise get included as is, namely "A"–"Z", "a"–"z", "0"–"9", "(", ")",
 /// "+", ",", "-", ".", ":", "=", "@", ";", "$", "_", "!", "*", and "'".
-pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime escape_set: []const u8, m: Allocator) error{OutOfMemory}![]u8 {
+/// Caller owns the returned memory.
+pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime escape_set: []const u8, m: Allocator) error{OutOfMemory}![:0]u8 {
     // compile-time validation
     const prefix = comptime urnPrefixFromNamespaceCheck(namespace);
     // match NSS from RFC 2141, subsection 2.2
@@ -87,7 +88,7 @@ pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime es
         else => @compileError("URN escape set with redundant escape characer"),
     };
 
-    if (specifics.len == 0) return "";
+    if (specifics.len == 0) return m.dupeZ(u8, "");
 
     var size: usize = prefix.len;
     for (specifics) |c| {
@@ -97,7 +98,7 @@ pub fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime es
     }
 
     // output string + write pointer
-    var b = try m.alloc(u8, size);
+    var b = try m.allocSentinel(u8, size, 0);
     inline for (prefix, 0..) |c, i| b[i] = c;
     var p = b.ptr + prefix.len;
 
