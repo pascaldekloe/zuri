@@ -8,27 +8,35 @@ const StringTooBig = Urview.ParseError.StringTooBig;
 const std = @import("std");
 
 const zuri2k = extern struct {
-    scheme_ptr: [*]const c_char,
+    scheme_ptr: [*c]const c_char,
     scheme_len: usize,
-
-    userinfo_ptr: ?[*]const c_char,
+    userinfo_ptr: [*c]const c_char,
     userinfo_len: usize,
-
-    host_ptr: ?[*]const c_char,
+    host_ptr: [*c]const c_char,
     host_len: usize,
-
-    path_ptr: ?[*]const c_char,
+    path_ptr: [*c]const c_char,
     path_len: usize,
-
-    query_ptr: ?[*]const c_char,
+    port_ptr: [*c]const c_char,
+    port_len: usize,
+    query_ptr: [*c]const c_char,
     query_len: usize,
-
-    fragment_ptr: ?[*]const c_char,
+    fragment_ptr: [*c]const c_char,
     fragment_len: usize,
 
-    port: u16,
+    port: [*c]u16,
 
-    buf: [2048]u8,
+    buf: [2048 - (7 * 16) - 8]u8,
+
+    fn schemeOrZero(src: *const zuri2k) []const u8 {
+        const s = @as([*]const u8, @ptrCast(src.scheme_ptr))[0..src.scheme_len];
+        if (s.len == 0) return "";
+        for (s, 0..) |c, i| switch (c) {
+            'A'...'Z', 'a'...'z' => continue,
+            '0'...'9', '+', '-', '.' => if (i == 0) return "",
+            else => return "",
+        };
+        return s;
+    }
 };
 
 var no_error: [*:0]const u8 = "NoError";
@@ -39,6 +47,8 @@ export fn zuri_error_name(errno: c_uint) [*:0]const u8 {
 }
 
 export fn zuri_parse2k(dst: *zuri2k, uri: [*]const c_char, len: usize) c_uint {
+    if (@sizeOf(zuri2k) > 2048) @compileError("zuri2k exceeds 2 KiB");
+
     if (@bitSizeOf(c_char) != 8) @compileError("need 8-bit bytes");
     const ur = Urview.parse(@as([*]const u8, @ptrCast(uri))[0..len]) catch |err| return @intFromError(err);
 
@@ -55,7 +65,9 @@ export fn zuri_parse2k(dst: *zuri2k, uri: [*]const c_char, len: usize) c_uint {
         dst.userinfo_len = 0;
         dst.host_ptr = null;
         dst.host_len = 0;
-        dst.port = 0;
+        dst.port_ptr = null;
+        dst.port_len = 0;
+        dst.port = null;
     } else {
         const u = ur.userinfo(m) catch return @intFromError(StringTooBig);
         dst.userinfo_ptr = @ptrCast(u);
@@ -65,7 +77,21 @@ export fn zuri_parse2k(dst: *zuri2k, uri: [*]const c_char, len: usize) c_uint {
         dst.host_ptr = @ptrCast(h);
         dst.host_len = h.len;
 
-        dst.port = if (ur.port()) |n| n else 0;
+        if (ur.hasPort()) {
+            const decimals = ur.rawPort()[1..]; // trim ":" prefix
+            dst.port_ptr = @ptrCast(decimals);
+            dst.port_len = decimals.len;
+            if (ur.port()) |n| {
+                dst.port = m.create(u16) catch return @intFromError(StringTooBig);
+                dst.port.* = n;
+            } else {
+                dst.port = null;
+            }
+        } else {
+            dst.port_ptr = null;
+            dst.port_len = 0;
+            dst.port = null;
+        }
     }
 
     if (!ur.hasPath()) {
@@ -98,20 +124,19 @@ export fn zuri_parse2k(dst: *zuri2k, uri: [*]const c_char, len: usize) c_uint {
     return 0;
 }
 
-export fn zuri_read2k(src: *zuri2k, buf: [*]c_char, cap: usize) usize {
+export fn zuri_read2k(src: *const zuri2k, buf: [*]c_char, cap: usize) usize {
     if (@bitSizeOf(c_char) != 8) @compileError("need 8-bit bytes");
-    const scheme = @as([*]const u8, @ptrCast(src.scheme_ptr))[0..src.scheme_len];
-    if (scheme.len == 0) return 1;
-    for (scheme, 0..) |c, i| switch (c) {
-        'A'...'Z', 'a'...'z' => continue,
-        '0'...'9', '+', '-', '.' => if (i == 0) return 1,
-        else => return 1,
-    };
+    const scheme = src.schemeOrZero();
+    if (scheme.len == 0) {
+        buf[0] = 0; // terminate just in case …
+        buf[1] = 0;
+        return 1; // ZURI_ILLEGAL_SCHEME
+    }
 
     var ur = Urlink{};
     if (src.userinfo_ptr) |p| ur.userinfo = @as([*]const u8, @ptrCast(p))[0..src.userinfo_len];
     if (src.host_ptr) |p| ur.host = @as([*]const u8, @ptrCast(p))[0..src.host_len];
-    if (src.port != 0) ur.port = src.port;
+    if (src.port != null) ur.port = src.port.*;
     ur.path = @as([*]const u8, @ptrCast(src.path_ptr))[0..src.path_len];
     ur.query = @as([*]const u8, @ptrCast(src.query_ptr))[0..src.query_len];
     if (src.fragment_ptr) |p| ur.fragment = @as([*]const u8, @ptrCast(p))[0..src.fragment_len];
@@ -121,7 +146,10 @@ export fn zuri_read2k(src: *zuri2k, buf: [*]c_char, cap: usize) usize {
     var p: [*]u8 = @ptrCast(buf);
     var fix = std.heap.FixedBufferAllocator.init(p[scheme.len - 1 .. cap]);
 
-    var s = ur.newUrl("z", fix.allocator()) catch return 0;
+    var s = ur.newUrl("z", fix.allocator()) catch {
+        buf[0] = 0; // terminate just in case …
+        return 0; // ZURI_BUF_TOO_SMALL
+    };
     for (scheme, 0..) |c, i| buf[i] = switch (c) {
         // “… should only produce lowercase scheme names for consistency.”
         // — RFC 3986, subsection 3.1

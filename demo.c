@@ -15,8 +15,7 @@ int main(int argc, char **argv) {
 		printf("%lu-byte buffer won't fit URI with null terminator", sizeof(buf));
 		return 1;
 	}
-	buf[len] = 0; // terminate C-style
 
-	printf("read %lu-byte URI: %s\n", len, &buf[0]);
+	printf("rebuild as a %zu-byte URI: %s\n", len, &buf[0]);
 	return 0;
 }

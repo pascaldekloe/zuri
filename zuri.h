@@ -6,34 +6,32 @@
 extern "C" {
 #endif
 
-// Handle URIs with a 2 KiB buffer.
+// Handle URIs with a reasonable size limit. The structure fits 2 KiB.
+// Component strings from zuri_parse2k contain null-terminated ASCII.
+// A NULL _ptr means that the component is absent.
 struct zuri2k {
 	// Scheme is the only required component in a URI.
 	const char* scheme_ptr;
-	size_t      scheme_len;
-
-	// Null means no userinfo component. Otherwise the string ends with "@".
+	size_t      scheme_len; // char count, excluding null terminator
 	const char* userinfo_ptr;
 	size_t      userinfo_len;
-
-	// The host component can be a registered name, or an IP address.
 	const char* host_ptr;
 	size_t      host_len;
-
+	const char* port_ptr; // ignored by zuri_read2k; use .port instead
+	size_t      port_len;
 	const char* path_ptr;
 	size_t      path_len;
-
-	// Null means no query component. Otherwise the string starts with "?".
 	const char* query_ptr;
 	size_t      query_len;
-
-	// Null means no fragment component. Otherwise the string starts with "#".
 	const char* fragment_ptr;
 	size_t      fragment_len;
 
-	uint16_t port;
+	// Port can be null even when port_size is not zero because
+	// the standards define no limit on the number of decimals.
+	uint16_t*   port;
 
-	char buf[2048]; // for interal use only
+	// The buffer holds pointer payloads. DO NOT EDIT!
+	char buf[2048 - (7 * 16) - 8];
 };
 
 // Zero means no error.
@@ -64,8 +62,9 @@ zuri_error_name(zuri_error err);
 #define ZURI_BUFF_TOO_SMALL 0
 #define ZURI_ILLEGAL_SCHEME 1
 
-// Encode src into buf, up to cap in size. The smallest URIs possible are made
-// of two chars ("x:"). Return zero and one are reserved for the error codes:
+// Encode src as ASCII into buf including null-termination, up to cap in size.
+// The char count returned excludes the null-terminator. URIs write at least two
+// chars, e.g., "x:". Return zero and one are reserved for the error codes:
 // ZURI_BUFF_TOO_SMALL and ZURI_ILLEGAL_SCHEME.
 size_t
 zuri_read2k(const struct zuri2k *src, char *buf, size_t cap);
