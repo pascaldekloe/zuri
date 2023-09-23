@@ -7,8 +7,12 @@ extern "C" {
 #endif
 
 // Handle URIs with a reasonable size limit. The structure fits 2 KiB.
-// Component strings from zuri_parse2k contain null-terminated ASCII.
-// A NULL _ptr means that the component is absent.
+// Component strings from zuri_parse2k are all null-terminated. Size
+// counts exclude any terminator, i.e., each size_t indexes a zero char.
+//
+// Any NULL pointer implies that the respective component is absent. For
+// example, a non-NULL fragment_ptr with fragment_len zero includes the
+// empty-fragment ("#").
 struct zuri2k {
 	// Scheme is the only required component in a URI.
 	const char* scheme_ptr;
@@ -42,7 +46,7 @@ zuri_error
 zuri_parse2k(struct zuri2k *dst, const char *uri, size_t len);
 
 // Error names are tokens in camel-case. See ParseError in Urview.zig for a
-// detailed description on each.
+// detailed description of each.
 //
 //  • NoScheme
 //  • AddressViolation
@@ -62,7 +66,7 @@ zuri_error_name(zuri_error err);
 #define ZURI_BUFF_TOO_SMALL 0
 #define ZURI_ILLEGAL_SCHEME 1
 
-// Encode src as ASCII into buf including null-termination, up to cap in size.
+// Encode src as ASCII into buf, up to cap in size, including a null-terminator.
 // The char count returned excludes the null-terminator. URIs write at least two
 // chars, e.g., "x:". Return zero and one are reserved for the error codes:
 // ZURI_BUFF_TOO_SMALL and ZURI_ILLEGAL_SCHEME.
