@@ -1,5 +1,6 @@
 #include <stddef.h>
 #include <stdint.h>
+#include <assert.h>
 
 
 #ifdef __cplusplus
@@ -37,6 +38,8 @@ struct zuri2k {
 	// The buffer holds pointer payloads. DO NOT EDIT!
 	char buf[2048 - (7 * 16) - 8];
 };
+
+static_assert(sizeof(struct zuri2k) <= 2048, "zuri2k exceeds 2 KiB");
 
 // Zero means no error.
 typedef unsigned int zuri_error;
