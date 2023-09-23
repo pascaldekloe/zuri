@@ -1,3 +1,6 @@
+#ifndef ZURI_H
+#define ZURI_H
+
 #include <stddef.h>
 #include <stdint.h>
 #include <assert.h>
@@ -80,3 +83,5 @@ zuri_read2k(const struct zuri2k *src, char *buf, size_t cap);
 #ifdef __cplusplus
 } // extern "C"
 #endif
+
+#endif // ZURI_H
