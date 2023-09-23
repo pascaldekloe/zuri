@@ -1168,13 +1168,11 @@ fn asIpLiteral(ur: *Urview, s: []const u8, start: usize) ParseError!void {
 // AsIpFuture parses authority s since "[v" at start.
 fn asIpFuture(ur: *Urview, s: []const u8, start: usize) ParseError!void {
     // match IPvFuture from RFC 3986, subsection 3.2.2
-    if (start + 4 > s.len or s[start + 3] != '.') return ParseError.AddressViolation;
-    switch (s[start + 2]) {
-        '0'...'9', 'a'...'f', 'A'...'F' => {}, // HEXDIG
-        else => return ParseError.AddressViolation,
-    }
+    var i = start + 2;
+    if (i >= s.len or hex_table[s[i]] > 15) return ParseError.AddressViolation;
+    i += 1;
+    while (i < s.len and s[i] != '.') : (i += 1) if (hex_table[s[i]] > 15) return ParseError.AddressViolation;
 
-    var i = start + 4;
     while (i < s.len) : (i += 1) switch (s[i]) {
         // unreserved
         'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => continue,
@@ -1188,6 +1186,13 @@ fn asIpFuture(ur: *Urview, s: []const u8, start: usize) ParseError!void {
         else => return ParseError.AddressViolation,
     };
     return ParseError.AddressViolation; // not closed with "]"
+}
+
+test "IP Future" {
+    const ur = try parse("e://[v007.~]:777353");
+    try expectEqualStrings("[v007.~]", ur.rawHost());
+    try expectEqualStrings(":777353", ur.rawPort());
+    try expectEqual(@as(?u16, null), ur.portAsU16());
 }
 
 fn Ip4inIp6Continue(ur: *Urview, s: []const u8, start: usize) ParseError!void {
