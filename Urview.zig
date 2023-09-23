@@ -177,18 +177,47 @@ pub fn equalsHost(ur: Urview, match: []const u8) bool {
     return equalsString(ur.rawHost(), match);
 }
 
-/// Port returns the number, with null for absence or out-of-bounds.
-pub fn port(ur: Urview) ?u16 {
-    const offset = ur.port_offset + 1; // trim ':'
-    const end = ur.path_offset;
-    if (offset >= end) return null;
+/// TCP and UDP use 16-bit port numbers (range 0–65535). The return is null when
+/// the URI defines no port, or when the value is out of bounds, or when leading
+/// zeroes bring the total number of decimals beyond five positions.
+pub fn portAsU16(ur: Urview) ?u16 {
+    // decimal value table (prevents multiplication)
+    const decis: [10]u16 = .{ 0, 10, 20, 30, 40, 50, 60, 70, 80, 90 };
+    const hectas: [10]u16 = .{ 0, 100, 200, 300, 400, 500, 600, 700, 800, 900 };
+    const kilos: [10]u16 = .{ 0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000 };
+    const leads: [7]u16 = .{ 0, 10000, 20000, 30000, 40000, 50000, 60000 };
 
-    var n: usize = 0;
-    for (offset..end) |i| {
-        n = (n * 10) + (ur.uri_ptr[i] - '0');
-        if (n > 0xffff) return null;
-    }
-    return @intCast(n);
+    const offset = @as(usize, ur.port_offset); // includes ":" if any
+    const end = @as(usize, ur.path_offset);
+    // parse values ":0"–":65535" exclusively; "" and ":" underflow usize
+    return switch (end -% offset -% 2) {
+        0 => @as(u16, ur.uri_ptr[end - 1] - '0'),
+        1 => @as(u16, ur.uri_ptr[end - 1] - '0') + decis[ur.uri_ptr[end - 2] - '0'],
+        2 => @as(u16, ur.uri_ptr[end - 1] - '0') + decis[ur.uri_ptr[end - 2] - '0'] + hectas[ur.uri_ptr[end - 3] - '0'],
+        3 => @as(u16, ur.uri_ptr[end - 1] - '0') + decis[ur.uri_ptr[end - 2] - '0'] + hectas[ur.uri_ptr[end - 3] - '0'] + kilos[ur.uri_ptr[end - 4] - '0'],
+        4 => max_digits: {
+            const port = @as(u16, ur.uri_ptr[end - 1] - '0') + decis[ur.uri_ptr[end - 2] - '0'] + hectas[ur.uri_ptr[end - 3] - '0'] + kilos[ur.uri_ptr[end - 4] - '0'];
+            const msd = @as(u16, ur.uri_ptr[end - 5] - '0');
+            if (msd > 6 or (msd == 6 and port > 5535)) break :max_digits null;
+            break :max_digits leads[msd] + port;
+        },
+        else => null,
+    };
+}
+
+test "16-Bit Port Numbers" {
+    try expectEqual(@as(?u16, null), (try parse("example://")).portAsU16());
+    try expectEqual(@as(?u16, null), (try parse("example://:")).portAsU16());
+    try expectEqual(@as(?u16, 0), (try parse("example://:0")).portAsU16());
+    try expectEqual(@as(?u16, 1), (try parse("example://:1")).portAsU16());
+    try expectEqual(@as(?u16, 12), (try parse("example://:12")).portAsU16());
+    try expectEqual(@as(?u16, 123), (try parse("example://:123")).portAsU16());
+    try expectEqual(@as(?u16, 1234), (try parse("example://:1234")).portAsU16());
+    try expectEqual(@as(?u16, 12345), (try parse("example://:12345")).portAsU16());
+    try expectEqual(@as(?u16, 65535), (try parse("example://:65535")).portAsU16());
+    try expectEqual(@as(?u16, null), (try parse("example://:65536")).portAsU16());
+    try expectEqual(@as(?u16, null), (try parse("example://:99999")).portAsU16());
+    try expectEqual(@as(?u16, null), (try parse("example://:100000")).portAsU16());
 }
 
 /// Path returns the component with any and all percent-encodings resolved. None
@@ -855,13 +884,13 @@ test "Tricky" {
 }
 
 test "Bloat" {
-    const ur = try parse("x-odbc://admin:fe:main@[0::192.168.57.2]:0005432/cms?SELECT%20*%20FROM%20users;#80%E2%80%93160");
+    const ur = try parse("x-odbc://admin:fe:main@[0::192.168.57.2]:05432/cms?SELECT%20*%20FROM%20users;#80%E2%80%93160");
 
     try expectEqualStrings("x-odbc:", ur.rawScheme());
-    try expectEqualStrings("//admin:fe:main@[0::192.168.57.2]:0005432", ur.rawAuthority());
+    try expectEqualStrings("//admin:fe:main@[0::192.168.57.2]:05432", ur.rawAuthority());
     try expectEqualStrings("admin:fe:main@", ur.rawUserinfo());
     try expectEqualStrings("[0::192.168.57.2]", ur.rawHost());
-    try expectEqualStrings(":0005432", ur.rawPort());
+    try expectEqualStrings(":05432", ur.rawPort());
     try expectEqualStrings("/cms", ur.rawPath());
     try expectEqualStrings("?SELECT%20*%20FROM%20users;", ur.rawQuery());
     try expectEqualStrings("#80%E2%80%93160", ur.rawFragment());
@@ -872,7 +901,7 @@ test "Bloat" {
     try expect(ur.equalsHost("[0::192.168.57.2]"));
     try expect(!ur.equalsHost("0::192.168.57.2"));
     try expect(!ur.equalsHost("192.168.57.2"));
-    try expectEqual(@as(?u16, 5432), ur.port());
+    try expectEqual(@as(?u16, 5432), ur.portAsU16());
     try expect(ur.equalsPath("/cms"));
     try expect(!ur.equalsPath("cms"));
     try expect(ur.equalsFragment("80–160"));
@@ -895,7 +924,7 @@ test "Absent" {
     try expect(!ur.equalsScheme("ssh"));
     try expect(!ur.equalsUserinfo(""));
     try expect(!ur.equalsHost(""));
-    try expectEqual(@as(?u16, null), ur.port());
+    try expectEqual(@as(?u16, null), ur.portAsU16());
     try expect(ur.equalsPath(""));
     try expect(!ur.equalsFragment(""));
 
@@ -907,7 +936,7 @@ test "Absent" {
     var fix = std.heap.FixedBufferAllocator.init(&buf);
     try expectEqualStrings("", try ur.userinfo(fix.allocator()));
     try expectEqualStrings("", try ur.host(fix.allocator()));
-    try expectEqual(@as(?u16, null), ur.port());
+    try expectEqual(@as(?u16, null), ur.portAsU16());
     try expectEqualStrings("", try ur.path(fix.allocator()));
     try expectEqualStrings("", try ur.query(fix.allocator()));
     try expectEqualStrings("", try ur.fragment(fix.allocator()));
@@ -931,7 +960,7 @@ test "Empty" {
     try expect(!ur.equalsUserinfo("@"));
     try expect(ur.equalsHost(""));
     try expect(!ur.equalsHost("//@"));
-    try expectEqual(@as(?u16, null), ur.port());
+    try expectEqual(@as(?u16, null), ur.portAsU16());
     try expect(ur.equalsPath(""));
     try expect(!ur.equalsPath("/"));
     try expect(ur.equalsQuery(""));

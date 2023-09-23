@@ -81,7 +81,7 @@ export fn zuri_parse2k(dst: *zuri2k, uri: [*]const c_char, len: usize) c_uint {
             const decimals = ur.rawPort()[1..]; // trim ":" prefix
             dst.port_ptr = @ptrCast(decimals);
             dst.port_len = decimals.len;
-            if (ur.port()) |n| {
+            if (ur.portAsU16()) |n| {
                 dst.port = m.create(u16) catch return @intFromError(StringTooBig);
                 dst.port.* = n;
             } else {

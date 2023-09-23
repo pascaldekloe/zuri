@@ -23,7 +23,7 @@ pub fn main() !void {
 
     try verifyConstraints(ur, fuzz_in);
     if (!fuzzFail) try verifyEscapeMatch(ur);
-    mem.doNotOptimizeAway(ur.port());
+    mem.doNotOptimizeAway(ur.portAsU16());
 
     allocator.free(try ur.pathNorm("", allocator));
     allocator.free(try ur.pathNorm("👯", allocator));

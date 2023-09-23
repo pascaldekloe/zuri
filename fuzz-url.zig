@@ -100,7 +100,7 @@ pub fn main() !void {
         std.os.exit(1);
     }
     if (ur.port) |want| {
-        if (view.port()) |got| {
+        if (view.portAsU16()) |got| {
             if (got != want) {
                 std.log.err("fuzz with port {d} became {d} in URL {s}", .{ want, got, url });
                 std.os.exit(1);
