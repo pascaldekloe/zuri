@@ -10,11 +10,13 @@ const stderr = std.io.getStdErr().writer();
 const stdout = std.io.getStdOut().writer();
 const report = stdout;
 
-const bench_count = 1_000_000; // number of iterations
+const allocator = std.heap.page_allocator;
+
+const bench_count = 50_000_000; // number of iterations
 
 pub fn main() !void {
-    var sample_buf: [128]u8 = undefined;
-    const sample_url = loadSampleUrl(&sample_buf);
+    const sample_url = try loadSampleUrl();
+    defer allocator.free(sample_url);
     const sample = try Urview.parse(sample_url);
 
     // TODO(pascaldekloe): Need an API for path segment extraction.
@@ -35,7 +37,7 @@ pub fn main() !void {
     // fast allocator to minimize benchmark influence
     var buf: [1024]u8 = undefined;
     var fix = std.heap.FixedBufferAllocator.init(&buf);
-    const allocator = fix.allocator();
+    const bench_allocator = fix.allocator();
 
     var timer = try Timer.start();
     {
@@ -44,14 +46,13 @@ pub fn main() !void {
         var n: usize = bench_count;
         while (n != 0) : (n -= 1) {
             const ur: Urlink = .{ .host = sample.rawHost(), .segments = sample_segs[0..] };
-            const url = try ur.newUrl("http", allocator);
+            const url = try ur.newUrl("http", bench_allocator);
             std.mem.doNotOptimizeAway(url);
             if (n == arbitrary_point) try report.print("benchmark newUrl does {s}.\n", .{url});
-            allocator.free(url);
+            bench_allocator.free(url);
         }
 
-        const end = timer.read();
-        try report.print("URL construction took {d} ns on average, including free\n", .{@divTrunc(end - start, bench_count)});
+        try reportAverageNs("URL construction", timer.read() - start);
     }
 
     timer.reset();
@@ -65,14 +66,13 @@ pub fn main() !void {
         var n: usize = bench_count;
         while (n != 0) : (n -= 1) {
             const ur: Urlink = .{ .segments = sample_segs[0..] };
-            const url = try ur.newIp6Url("http", bench_addr, allocator);
+            const url = try ur.newIp6Url("http", bench_addr, bench_allocator);
             mem.doNotOptimizeAway(url);
             if (n == arbitrary_point) try report.print("benchmark newIp6Url does {s}.\n", .{url});
-            allocator.free(url);
+            bench_allocator.free(url);
         }
 
-        const end = timer.read();
-        try report.print("IPv6 URL construction took {d} ns on average, including free\n", .{@divTrunc(end - start, bench_count)});
+        try reportAverageNs("IPv6 URL construction", timer.read() - start);
     }
 
     timer.reset();
@@ -84,14 +84,13 @@ pub fn main() !void {
 
         var n: usize = bench_count;
         while (n != 0) : (n -= 1) {
-            const urn = try Urname.newUrn("bench", bench_spec, "", allocator);
+            const urn = try Urname.newUrn("bench", bench_spec, "", bench_allocator);
             mem.doNotOptimizeAway(urn);
             if (n == arbitrary_point) try report.print("benchmark newUrn does {s}.\n", .{urn});
-            allocator.free(urn);
+            bench_allocator.free(urn);
         }
 
-        const end = timer.read();
-        try report.print("URN construction took {d} ns on average, including free\n", .{@divTrunc(end - start, bench_count)});
+        try reportAverageNs("URN construction", timer.read() - start);
     }
 
     timer.reset();
@@ -105,13 +104,17 @@ pub fn main() !void {
             mem.doNotOptimizeAway(&ur);
         }
 
-        const end = timer.read();
-        try report.print("parse took {d} ns on average\n", .{@divTrunc(end - start, bench_count)});
+        try reportAverageNs("parse", timer.read() - start);
     }
 }
 
+fn reportAverageNs(label: []const u8, duration_ns: u64) !void {
+    const avg = @as(f64, @floatFromInt(duration_ns)) / @as(f64, @floatFromInt(bench_count));
+    try report.print("{s} took {d:.1} ns on average\n", .{ label, avg });
+}
+
 // Load test data from filesystem to prevent the compiler from getting clever.
-fn loadSampleUrl(sample_buf: *[128]u8) []const u8 {
+fn loadSampleUrl() ![:0]const u8 {
     var path_buf: [1024]u8 = undefined;
     const wd = std.os.getcwd(&path_buf) catch |err| {
         stderr.print("working directory unavailable: {}", .{err}) catch {};
@@ -127,9 +130,10 @@ fn loadSampleUrl(sample_buf: *[128]u8) []const u8 {
     };
     defer file.close();
 
-    var n = file.readAll(sample_buf) catch |err| {
+    var sample_buf: [128]u8 = undefined;
+    var n = file.readAll(&sample_buf) catch |err| {
         stderr.print("path {s} data unavailable: {}", .{ path, err }) catch {};
         std.os.exit(255);
     };
-    return sample_buf[0..n];
+    return allocator.dupeZ(u8, sample_buf[0..n]);
 }

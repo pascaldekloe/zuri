@@ -18,14 +18,14 @@ const expectStringStartsWith = std.testing.expectStringStartsWith;
 const Urview = @This();
 
 // input reference + octet count
-uri_ptr: [*]const u8,
-uri_size: u16,
+uri_ptr: [*:0]const u8,
+uri_len: u16 = undefined,
 
 // The seven offsets plus the overall (URI) size fits nicely into 16 bits.
 // The userinfo offset could be calculated by comparing the authority and path
 // offsets at the expense of an exectuion branche.
 
-// Offsets are set (to non-zero) regardless of the component's precence.
+// Offsets are set (to non-zero) regardless of the component's presence.
 authority_offset: u16 = undefined,
 userinfo_offset: u16 = undefined,
 host_offset: u16 = undefined,
@@ -102,12 +102,12 @@ pub fn hasQuery(ur: Urview) bool {
 
 /// The raw fragment component starts with "#" when present.
 pub fn rawFragment(ur: Urview) []const u8 {
-    return ur.uri_ptr[ur.fragment_offset..ur.uri_size];
+    return ur.uri_ptr[ur.fragment_offset..ur.uri_len];
 }
 
 /// The fragment component is optional.
 pub fn hasFragment(ur: Urview) bool {
-    return ur.fragment_offset < ur.uri_size;
+    return ur.fragment_offset < ur.uri_len;
 }
 
 /// Scheme returns the component in lower-case. Caller owns the retured memory.
@@ -643,7 +643,7 @@ pub fn equalsQuery(ur: Urview, match: []const u8) bool {
 /// memory.
 pub fn fragment(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8 {
     const offset = ur.fragment_offset + 1; // trim '#'
-    const end = ur.uri_size;
+    const end = ur.uri_len;
     if (offset >= end) return m.allocSentinel(u8, 0, 0);
     return resolvePercentEncodings(ur.uri_ptr[offset..end], m);
 }
@@ -652,7 +652,7 @@ pub fn fragment(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8 {
 /// encodings resolved equals match. Absent components don't equal any match.
 pub fn equalsFragment(ur: Urview, match: []const u8) bool {
     const offset = ur.fragment_offset + 1; // trim '#'
-    const end = ur.uri_size;
+    const end = ur.uri_len;
     if (offset > end) return false;
     return equalsString(ur.uri_ptr[offset..end], match);
 }
@@ -705,26 +705,19 @@ pub const ParseError = error{
 };
 
 /// Parse returns a projection of s if and only if s is a valid URI.
-pub fn parse(s: []const u8) ParseError!Urview {
-    if (s.len > (1 << 16) - 1) return ParseError.StringTooBig;
+pub fn parse(p: [*:0]const u8) ParseError!Urview {
+    var i: usize = 0;
 
     // match scheme from RFC 3986, subsection 3.1
-    match_scheme: for (s, 0..) |c, i| switch (c) {
+    match_scheme: while (true) : (i += 1) switch (p[i]) {
         // ALPHA from RFC 2234, subsection 6.1
         'A'...'Z', 'a'...'z' => continue,
         // DIGIT from RFC 2234, subsection 6.1
         '0'...'9', '+', '-', '.' => if (i == 0) break :match_scheme,
         ':' => {
             if (i == 0) break :match_scheme;
-            var ur = Urview{
-                .uri_ptr = s.ptr,
-                .uri_size = @intCast(s.len),
-                .authority_offset = @intCast(i + 1),
-                .path_offset = @intCast(s.len),
-                .query_offset = @intCast(s.len),
-                .fragment_offset = @intCast(s.len),
-            };
-            try sinceScheme(&ur, s[i + 1 ..]);
+            var ur = Urview{ .uri_ptr = p };
+            try sinceScheme(&ur, i + 1);
             return ur;
         },
         else => break :match_scheme,
@@ -733,7 +726,7 @@ pub fn parse(s: []const u8) ParseError!Urview {
 }
 
 test "Examples" {
-    const samples = [_][]const u8{
+    const samples = [_][:0]const u8{
         // “Uniform Resource Identifier (URI): Generic Syntax” RFC 3986, subsection 1.1.2
         "ftp://ftp.is.co.za/rfc/rfc1808.txt",
         "http://www.ietf.org/rfc/rfc2396.txt",
@@ -978,22 +971,24 @@ test "Empty" {
 }
 
 // Parse all components after raw_scheme, which can be none.
-fn sinceScheme(ur: *Urview, s: []const u8) ParseError!void {
+fn sinceScheme(ur: *Urview, offset: usize) ParseError!void {
+    ur.authority_offset = @intCast(offset & 0xffff);
+
     // “The authority component is preceded by a double slash ("//") and is
     // terminated by the next slash ("/"), question mark ("?"), or number
     // sign ("#") character, or by the end of the URI.”
-    if (s.len < 2 or s[0] != '/' or s[1] != '/') {
-        ur.userinfo_offset = ur.authority_offset;
-        ur.host_offset = ur.authority_offset;
-        ur.port_offset = ur.authority_offset;
-        ur.path_offset = ur.authority_offset;
-        return pathContinue(ur, s);
+    if (ur.uri_ptr[offset] != '/' or ur.uri_ptr[offset + 1] != '/') {
+        ur.userinfo_offset = @intCast(offset & 0xffff);
+        ur.host_offset = @intCast(offset & 0xffff);
+        ur.port_offset = @intCast(offset & 0xffff);
+        ur.path_offset = @intCast(offset & 0xffff);
+        return pathContinue(ur, offset);
     }
-    var i: usize = 2;
+    var i = offset + 2;
 
-    ur.userinfo_offset = ur.authority_offset + 2;
+    ur.userinfo_offset = @intCast(i & 0xffff);
     // Host offset is adjusted when userinfo is found.
-    ur.host_offset = ur.userinfo_offset;
+    ur.host_offset = @intCast(i & 0xffff);
 
     // Colon (":") characters are used as a port separator, as an IPv6
     // addresses separator, and they may occur in userinfo.
@@ -1002,17 +997,24 @@ fn sinceScheme(ur: *Urview, s: []const u8) ParseError!void {
 
     // • any IPv4address matches reg-name
     // • any reg-name matches userinfo
-    while (i < s.len) {
-        if (reg_name_chars[s[i]] != 0) {
+    while (true) {
+        if (reg_name_chars[ur.uri_ptr[i]] != 0) {
             // either userinfo or reg-name
             i += 1;
-        } else switch (s[i]) {
+        } else switch (ur.uri_ptr[i]) {
+            0 => {
+                ur.path_offset = @intCast(i & 0xffff);
+                ur.query_offset = @intCast(i & 0xffff);
+                ur.fragment_offset = @intCast(i & 0xffff);
+                ur.uri_len = @intCast(i);
+                return authorityEnd(ur, i, colon_count, last_colon);
+            },
             // userinfo
             '@' => {
                 if (ur.userinfo_offset > ur.host_offset)
                     return ParseError.MalformedAuthority;
                 i += 1;
-                ur.host_offset = ur.authority_offset + @as(u16, @intCast(i));
+                ur.host_offset = @intCast(i & 0xffff);
                 colon_count = 0; // reset for host count
             },
             // either userinfo or port separator or invalid
@@ -1022,51 +1024,44 @@ fn sinceScheme(ur: *Urview, s: []const u8) ParseError!void {
                 i += 1;
             },
             '/' => {
-                try authoritySet(ur, s[0..i], colon_count, last_colon);
-                ur.path_offset = ur.authority_offset + @as(u16, @intCast(i));
-                return pathContinue(ur, s[i..]);
+                try authorityEnd(ur, i, colon_count, last_colon);
+                return pathContinue(ur, i);
             },
             '?' => {
-                try authoritySet(ur, s[0..i], colon_count, last_colon);
-                ur.query_offset = ur.path_offset;
-                return queryContinue(ur, s[i..]);
+                try authorityEnd(ur, i, colon_count, last_colon);
+                ur.path_offset = @intCast(i & 0xffff);
+                return queryContinue(ur, i);
             },
             '#' => {
-                try authoritySet(ur, s[0..i], colon_count, last_colon);
-                ur.query_offset = ur.path_offset;
-                ur.fragment_offset = ur.path_offset;
-                return verifyFragment(s[i..]);
+                try authorityEnd(ur, i, colon_count, last_colon);
+                ur.path_offset = @intCast(i & 0xffff);
+                ur.query_offset = @intCast(i & 0xffff);
+                return fragmentContinue(ur, i);
             },
             '[' => {
-                if (i != 2 + @as(usize, ur.host_offset - ur.userinfo_offset))
-                    return ParseError.MalformedAuthority;
-                return asIpLiteral(ur, s, i);
+                if (i != ur.host_offset) return ParseError.MalformedAuthority;
+                return asIpLiteral(ur, i);
             },
             '%' => { // pct-encoded
-                try verifyProcentEncoding(s, i);
+                try verifyProcentEncoding(ur.uri_ptr, i);
                 i += 3;
             },
             else => return ParseError.IllegalAuthorityCharacter,
         }
     }
-
-    try authoritySet(ur, s, colon_count, last_colon);
-    ur.query_offset = ur.path_offset;
-    ur.fragment_offset = ur.path_offset;
+    unreachable;
 }
 
-fn authoritySet(ur: *Urview, s: []const u8, colon_count: usize, last_colon: usize) ParseError!void {
-    ur.path_offset = ur.authority_offset + @as(u16, @intCast(s.len));
-
+fn authorityEnd(ur: *Urview, end: usize, colon_count: usize, last_colon: usize) ParseError!void {
     switch (colon_count) {
         0 => {
-            ur.port_offset = ur.path_offset;
+            ur.port_offset = @intCast(end & 0xffff);
         },
         1 => {
-            ur.port_offset = ur.authority_offset + @as(u16, @intCast(last_colon));
+            ur.port_offset = @intCast(last_colon & 0xffff);
 
             // match port from RFC 3986, subsection 3.2.3
-            for (s[last_colon + 1 ..]) |c|
+            for (ur.uri_ptr[last_colon + 1 .. end]) |c|
                 if (c < '0' or c > '9')
                     return ParseError.IllegalPortCharacter;
         },
@@ -1074,20 +1069,20 @@ fn authoritySet(ur: *Urview, s: []const u8, colon_count: usize, last_colon: usiz
     }
 }
 
-// Parses authority s since "[" at start.
-fn asIpLiteral(ur: *Urview, s: []const u8, start: usize) ParseError!void {
+// Parses authority p since offset "[".
+fn asIpLiteral(ur: *Urview, offset: usize) ParseError!void {
     // “The use of "::" indicates one or more groups of 16 bits of zeros.
     // The "::" can only appear once in an address.  The "::" can also be
     // used to compress leading or trailing zeros in an address.”
     // — “IPv6 Addressing Architecture” RFC 3513, subsection 2.2
     var zeroes_once = false;
 
-    var i = start + 1;
-    if (i >= s.len) return ParseError.AddressViolation;
-    switch (s[i]) {
-        'v' => return asIpFuture(ur, s, start),
+    var i = offset + 1;
+    switch (ur.uri_ptr[i]) {
+        0 => return ParseError.AddressViolation, // not closed with "]"
+        'v' => return asIpFuture(ur, offset),
         ':' => {
-            if (i + 1 >= s.len or s[i + 1] != ':')
+            if (ur.uri_ptr[i + 1] != ':')
                 return ParseError.AddressViolation;
             i += 2;
             zeroes_once = true;
@@ -1099,7 +1094,8 @@ fn asIpLiteral(ur: *Urview, s: []const u8, start: usize) ParseError!void {
     var hexn: usize = 0; // number of digits (max 4)
 
     // match IP-literal from RFC 3986, subsection 3.2.2 with a jump table
-    while (i < s.len) : (i += 1) switch (s[i]) {
+    while (true) : (i += 1) switch (ur.uri_ptr[i]) {
+        0 => return ParseError.AddressViolation, // not closed with "]"
         '0'...'9', 'a'...'f', 'A'...'F' => { // HEXDIG
             if (hexn == 0) h16n += 1;
             hexn += 1;
@@ -1116,7 +1112,7 @@ fn asIpLiteral(ur: *Urview, s: []const u8, start: usize) ParseError!void {
         ']' => {
             if (!zeroes_once and h16n != 8 or zeroes_once and h16n > 7)
                 return ParseError.AddressViolation;
-            return ipLiteralEnd(ur, s, i);
+            return ipLiteralEnd(ur, i);
         },
 
         '.' => {
@@ -1132,28 +1128,28 @@ fn asIpLiteral(ur: *Urview, s: []const u8, start: usize) ParseError!void {
             if (h16n < 2 or !zeroes_once and h16n != 6 + 1 or zeroes_once and h16n > 5 + 1)
                 return ParseError.AddressViolation;
 
-            return Ip4inIp6Continue(ur, s, i - hexn);
+            return ip4inIp6Continue(ur, i - hexn);
         },
 
         // percent character ("%"), encoded as "%25", marks a zone identifier
         '%' => {
-            if (i + 2 >= s.len or s[i + 1] != '2' or s[i + 2] != '5' or !zeroes_once and h16n != 8 or zeroes_once and h16n > 7)
+            if (ur.uri_ptr[i + 1] != '2' or ur.uri_ptr[i + 2] != '5' or !zeroes_once and h16n != 8 or zeroes_once and h16n > 7)
                 return ParseError.AddressViolation;
             i += 3;
             var zone_start = i;
 
             // match ZoneID from “IPv6 Zone IDs in URIs” RFC 6874, section 2
-            while (i < s.len) switch (s[i]) {
+            while (true) switch (ur.uri_ptr[i]) {
                 // unreserved
                 'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => i += 1,
                 // pct-encoded
                 '%' => {
-                    try verifyProcentEncoding(s, i);
+                    try verifyProcentEncoding(ur.uri_ptr, i);
                     i += 3;
                 },
                 ']' => {
                     if (i <= zone_start) return ParseError.AddressViolation;
-                    return ipLiteralEnd(ur, s, i);
+                    return ipLiteralEnd(ur, i);
                 },
                 else => return ParseError.AddressViolation,
             };
@@ -1161,31 +1157,37 @@ fn asIpLiteral(ur: *Urview, s: []const u8, start: usize) ParseError!void {
 
         else => return ParseError.AddressViolation,
     };
-
-    return ParseError.AddressViolation; // not closed with "]"
+    unreachable;
 }
 
-// AsIpFuture parses authority s since "[v" at start.
-fn asIpFuture(ur: *Urview, s: []const u8, start: usize) ParseError!void {
-    // match IPvFuture from RFC 3986, subsection 3.2.2
-    var i = start + 2;
-    if (i >= s.len or hex_table[s[i]] > 15) return ParseError.AddressViolation;
-    i += 1;
-    while (i < s.len and s[i] != '.') : (i += 1) if (hex_table[s[i]] > 15) return ParseError.AddressViolation;
+// AsIpFuture parses authority s since offset "[v".
+fn asIpFuture(ur: *Urview, offset: usize) ParseError!void {
+    var i = offset + 2;
 
-    while (i < s.len) : (i += 1) switch (s[i]) {
+    // match IPvFuture from RFC 3986, subsection 3.2.2
+    if (hex_table[ur.uri_ptr[i]] > 15) return ParseError.AddressViolation;
+    i += 1;
+    while (ur.uri_ptr[i] != '.') : (i += 1)
+        if (hex_table[ur.uri_ptr[i]] > 15)
+            return ParseError.AddressViolation;
+
+    const start = i;
+
+    while (true) : (i += 1) switch (ur.uri_ptr[i]) {
+        0 => return ParseError.AddressViolation, // not closed with "]"
         // unreserved
         'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => continue,
         // sub-delims
         '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => continue,
         ':' => continue,
         ']' => {
-            if (i < start + 5) return ParseError.AddressViolation;
-            return ipLiteralEnd(ur, s, i);
+            // need one or more characters
+            if (i < start + 1) return ParseError.AddressViolation;
+            return ipLiteralEnd(ur, i);
         },
         else => return ParseError.AddressViolation,
     };
-    return ParseError.AddressViolation; // not closed with "]"
+    unreachable;
 }
 
 test "IP Future" {
@@ -1195,158 +1197,194 @@ test "IP Future" {
     try expectEqual(@as(?u16, null), ur.portAsU16());
 }
 
-fn Ip4inIp6Continue(ur: *Urview, s: []const u8, start: usize) ParseError!void {
-    var i = start;
+fn ip4inIp6Continue(ur: *Urview, offset: usize) ParseError!void {
+    var i = offset;
     var octn: usize = 1; // octet count (need 4)
     var decn: usize = 0; // decimal count (max 3)
 
     // match IPv4address from RFC 3986, subsection 3.2.2
-    while (i < s.len) : (i += 1) switch (s[i]) {
+    while (true) : (i += 1) switch (ur.uri_ptr[i]) {
+        0 => return ParseError.AddressViolation, // not closed with "]"
         '0'...'9' => {
             decn += 1;
         },
         '.' => {
-            _ = parseInt(u8, s[i - decn .. i], 10) catch
+            _ = parseInt(u8, ur.uri_ptr[i - decn .. i], 10) catch
                 return ParseError.AddressViolation;
-            if (decn == 0 or s[i - decn] == '0')
+            if (decn == 0 or ur.uri_ptr[i - decn] == '0')
                 return ParseError.AddressViolation;
             octn += 1;
             decn = 0;
         },
         ']' => {
-            _ = parseInt(u8, s[i - decn .. i], 10) catch
+            _ = parseInt(u8, ur.uri_ptr[i - decn .. i], 10) catch
                 return ParseError.AddressViolation;
-            if (decn == 0 or octn != 4 or s[i - decn] == '0')
+            if (decn == 0 or octn != 4 or ur.uri_ptr[i - decn] == '0')
                 return ParseError.AddressViolation;
 
-            return ipLiteralEnd(ur, s, i);
+            return ipLiteralEnd(ur, i);
         },
         else => return ParseError.AddressViolation,
     };
-    return ParseError.AddressViolation; // not closed with "]"
+    unreachable;
 }
 
-// ipLiteralEnd continues from end "]" in authority s.
-fn ipLiteralEnd(ur: *Urview, s: []const u8, end: usize) ParseError!void {
+// ipLiteralEnd continues from end "]".
+fn ipLiteralEnd(ur: *Urview, end: usize) ParseError!void {
     var i = end + 1;
-    ur.port_offset = ur.authority_offset + @as(u16, @intCast(i));
-    if (i >= s.len) return;
+    ur.port_offset = @intCast(i & 0xffff);
 
-    switch (s[i]) {
+    switch (ur.uri_ptr[i]) {
+        0 => {
+            if (i > 0xffff) return ParseError.StringTooBig;
+            ur.path_offset = @intCast(i);
+            ur.query_offset = @intCast(i);
+            ur.fragment_offset = @intCast(i);
+            ur.uri_len = @intCast(i);
+            return;
+        },
         '/' => {
-            ur.path_offset = ur.port_offset;
-            return pathContinue(ur, s[i..]);
+            return pathContinue(ur, i);
         },
         '?' => {
-            ur.path_offset = ur.port_offset;
-            ur.query_offset = ur.port_offset;
-            return queryContinue(ur, s[i..]);
+            ur.path_offset = @intCast(i & 0xffff);
+            return queryContinue(ur, i);
         },
         '#' => {
-            ur.path_offset = ur.port_offset;
-            ur.query_offset = ur.port_offset;
-            ur.fragment_offset = ur.port_offset;
-            return verifyFragment(s[i..]);
+            ur.path_offset = @intCast(i & 0xffff);
+            ur.query_offset = @intCast(i & 0xffff);
+            return fragmentContinue(ur, i);
         },
 
         ':' => {
             i += 1;
 
             // match port from RFC 3986, subsection 3.2.3
-            while (i < s.len) : (i += 1) switch (s[i]) {
+            while (true) : (i += 1) switch (ur.uri_ptr[i]) {
                 '0'...'9' => continue,
 
+                0 => {
+                    if (i > 0xffff) return ParseError.StringTooBig;
+                    ur.path_offset = @intCast(i);
+                    ur.query_offset = @intCast(i);
+                    ur.fragment_offset = @intCast(i);
+                    ur.uri_len = @intCast(i);
+                    return;
+                },
                 '/' => {
-                    ur.path_offset = ur.authority_offset + @as(u16, @intCast(i));
-                    return pathContinue(ur, s[i..]);
+                    return pathContinue(ur, i);
                 },
                 '?' => {
-                    ur.path_offset = ur.authority_offset + @as(u16, @intCast(i));
-                    ur.query_offset = ur.path_offset;
-                    return queryContinue(ur, s[i..]);
+                    ur.path_offset = @intCast(i & 0xffff);
+                    return queryContinue(ur, i);
                 },
                 '#' => {
-                    ur.path_offset = ur.authority_offset + @as(u16, @intCast(i));
-                    ur.query_offset = ur.path_offset;
-                    ur.fragment_offset = ur.query_offset;
-                    return verifyFragment(s[i..]);
+                    ur.path_offset = @intCast(i & 0xffff);
+                    ur.query_offset = @intCast(i & 0xffff);
+                    return fragmentContinue(ur, i);
                 },
 
                 else => return ParseError.IllegalPortCharacter,
             };
+            unreachable;
         },
 
         // trailer after address ended (with "]")
         else => return ParseError.MalformedAuthority,
     }
+    unreachable;
 }
 
-// PathContinue parses s as the path component.
-fn pathContinue(ur: *Urview, s: []const u8) ParseError!void {
+// PathContinue parses p at offset.
+fn pathContinue(ur: *Urview, offset: usize) ParseError!void {
+    ur.path_offset = @intCast(offset & 0xffff);
+    var i = offset;
+
     // match path from RFC 3986, subsection 3.3 with a jump table
-    var i: usize = 0;
-    while (i < s.len) {
-        if (path_chars[s[i]] != 0) {
+    while (true) {
+        if (path_chars[ur.uri_ptr[i]] != 0) {
             i += 1;
-        } else switch (s[i]) {
-            '%' => {
-                try verifyProcentEncoding(s, i);
-                i += 3;
+        } else switch (ur.uri_ptr[i]) {
+            0 => {
+                if (i > 0xffff) return ParseError.StringTooBig;
+                ur.query_offset = @intCast(i);
+                ur.fragment_offset = @intCast(i);
+                ur.uri_len = @intCast(i);
+                return;
             },
             '?' => {
-                ur.query_offset = ur.path_offset + @as(u16, @intCast(i));
-                return queryContinue(ur, s[i..]);
+                return queryContinue(ur, i);
             },
             '#' => {
-                ur.query_offset = ur.path_offset + @as(u16, @intCast(i));
-                ur.fragment_offset = ur.query_offset;
-                return verifyFragment(s[i..]);
+                ur.query_offset = @intCast(i & 0xffff);
+                return fragmentContinue(ur, i);
+            },
+            '%' => {
+                try verifyProcentEncoding(ur.uri_ptr, i);
+                i += 3;
             },
             else => return ParseError.IllegalPathCharacter,
         }
     }
+    unreachable;
 }
 
-// QueryContinue parses s after "?".
+// QueryContinue parses p since offset "?".
 //
 // “The query component is indicated by the first question mark ("?")
 // character and terminated by a number sign ("#") character or by the end
 // of the URI.”
-fn queryContinue(ur: *Urview, s: []const u8) ParseError!void {
+fn queryContinue(ur: *Urview, offset: usize) ParseError!void {
+    ur.query_offset = @intCast(offset & 0xffff);
+    var i = offset + 1;
+
     // match query from RFC 3986, subsection 3.4 with a jump table
-    var i: usize = 1;
-    while (i < s.len) {
-        if (query_chars[s[i]] != 0) {
+    while (true) {
+        if (query_chars[ur.uri_ptr[i]] != 0) {
             i += 1;
-        } else switch (s[i]) {
-            // pct-encoded
-            '%' => {
-                try verifyProcentEncoding(s, i);
-                i += 3;
+        } else switch (ur.uri_ptr[i]) {
+            0 => {
+                if (i > 0xffff) return ParseError.StringTooBig;
+                ur.fragment_offset = @intCast(i);
+                ur.uri_len = @intCast(i);
+                return;
             },
             '#' => {
-                ur.fragment_offset = ur.query_offset + @as(u16, @intCast(i));
-                return verifyFragment(s[i..]);
+                return fragmentContinue(ur, i);
+            },
+            '%' => {
+                try verifyProcentEncoding(ur.uri_ptr, i);
+                i += 3;
             },
             else => return ParseError.IllegalQueryCharacter,
         }
     }
+    unreachable;
 }
 
-// VerifyFragment parses s after "#".
+// FragmentContinue parses p since offset "#".
 //
 // “A fragment identifier component is indicated by the presence of a
 // number sign ("#") character and terminated by the end of the URI.”
-fn verifyFragment(s: []const u8) ParseError!void {
+fn fragmentContinue(ur: *Urview, offset: usize) ParseError!void {
+    ur.fragment_offset = @intCast(offset & 0xffff);
+    var i = offset + 1;
+
     // match fragment from RFC 3986, subsection 3.5 with a jump table
-    var i: usize = 1;
-    while (i < s.len) {
-        if (fragment_chars[s[i]] != 0) {
+    while (true) {
+        if (fragment_chars[ur.uri_ptr[i]] != 0) {
             i += 1;
-        } else {
-            if (s[i] != '%') return ParseError.IllegalFragmentCharacter;
-            try verifyProcentEncoding(s, i);
-            i += 3;
+        } else switch (ur.uri_ptr[i]) {
+            0 => {
+                if (i > 0xffff) return ParseError.StringTooBig;
+                ur.uri_len = @intCast(i);
+                return;
+            },
+            '%' => {
+                try verifyProcentEncoding(ur.uri_ptr, i);
+                i += 3;
+            },
+            else => return ParseError.IllegalFragmentCharacter,
         }
     }
 }
@@ -1404,8 +1442,8 @@ test "Case Normalization" {
     try expectEqualStrings("www.example.com", h);
 }
 
-fn verifyProcentEncoding(s: []const u8, i: usize) ParseError!void {
-    if (i + 2 >= s.len or (hex_table[s[i + 1]] | hex_table[s[i + 2]]) & 0xf0 != 0)
+fn verifyProcentEncoding(p: [*:0]const u8, i: usize) ParseError!void {
+    if (hex_table[p[i + 1]] > 15 or hex_table[p[i + 2]] > 15)
         return ParseError.BrokenPercentEncoding;
 }
 

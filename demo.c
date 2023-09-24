@@ -7,7 +7,7 @@ int main(int argc, char **argv) {
 	const char *sample = "http://root@localhost:8080/v1?ask#sub";
 
 	struct zuri2k uri;
-	zuri_parse2k(&uri, sample, strlen(sample));
+	zuri_parse2k(&uri, sample);
 
 	char buf[2048];
 	size_t len = zuri_read2k(&uri, &buf[0], sizeof(buf) - 1);

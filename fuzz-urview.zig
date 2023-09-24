@@ -13,15 +13,15 @@ pub fn main() !void {
     // fetch fuzz input
     const stdin = std.io.getStdIn();
     // sync size with afl-fuzz(1) -G argument
-    var readb: [64]u8 = undefined;
+    var readb: [64:0]u8 = undefined;
     const readn = try stdin.readAll(&readb);
-    const fuzz_in: []const u8 = readb[0..readn];
+    if (readn < readb.len) readb[readn] = 0;
 
-    const ur = Urview.parse(fuzz_in) catch return;
+    const ur = Urview.parse(&readb) catch return;
 
     defer if (fuzzFail) os.exit(1);
 
-    try verifyConstraints(ur, fuzz_in);
+    try verifyConstraints(ur, readb[0..readn]);
     if (!fuzzFail) try verifyEscapeMatch(ur);
     mem.doNotOptimizeAway(ur.portAsU16());
 

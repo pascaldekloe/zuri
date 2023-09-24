@@ -29,7 +29,6 @@ const zuri2k = extern struct {
 
     fn schemeOrZero(src: *const zuri2k) []const u8 {
         const s = @as([*]const u8, @ptrCast(src.scheme_ptr))[0..src.scheme_len];
-        if (s.len == 0) return "";
         for (s, 0..) |c, i| switch (c) {
             'A'...'Z', 'a'...'z' => continue,
             '0'...'9', '+', '-', '.' => if (i == 0) return "",
@@ -46,11 +45,11 @@ export fn zuri_error_name(errno: c_uint) [*:0]const u8 {
     return @errorName(@errorFromInt(@intCast(errno))).ptr;
 }
 
-export fn zuri_parse2k(dst: *zuri2k, uri: [*]const c_char, len: usize) c_uint {
+export fn zuri_parse2k(dst: *zuri2k, uri: [*c]const c_char) c_uint {
     if (@sizeOf(zuri2k) > 2048) @compileError("zuri2k exceeds 2 KiB");
 
     if (@bitSizeOf(c_char) != 8) @compileError("need 8-bit bytes");
-    const ur = Urview.parse(@as([*]const u8, @ptrCast(uri))[0..len]) catch |err| return @intFromError(err);
+    const ur = Urview.parse(@ptrCast(uri)) catch |err| return @intFromError(err);
 
     // allocate fields from struct buf
     var fix = std.heap.FixedBufferAllocator.init(&dst.buf);
@@ -69,13 +68,23 @@ export fn zuri_parse2k(dst: *zuri2k, uri: [*]const c_char, len: usize) c_uint {
         dst.port_len = 0;
         dst.port = null;
     } else {
-        const u = ur.userinfo(m) catch return @intFromError(StringTooBig);
-        dst.userinfo_ptr = @ptrCast(u);
-        dst.userinfo_len = u.len;
+        if (ur.hasUserinfo()) {
+            const u = ur.userinfo(m) catch return @intFromError(StringTooBig);
+            dst.userinfo_ptr = @ptrCast(u);
+            dst.userinfo_len = u.len;
+        } else {
+            dst.userinfo_ptr = null;
+            dst.userinfo_len = 0;
+        }
 
-        const h = ur.host(m) catch return @intFromError(StringTooBig);
-        dst.host_ptr = @ptrCast(h);
-        dst.host_len = h.len;
+        if (ur.hasHost()) {
+            const h = ur.host(m) catch return @intFromError(StringTooBig);
+            dst.host_ptr = @ptrCast(h);
+            dst.host_len = h.len;
+        } else {
+            dst.host_ptr = dst.scheme_ptr + dst.scheme_len + 2 + dst.userinfo_len;
+            dst.host_len = 0;
+        }
 
         if (ur.hasPort()) {
             const decimals = ur.rawPort()[1..]; // trim ":" prefix

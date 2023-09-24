@@ -117,14 +117,14 @@ on your machine.
 
 ```
 benchmark newUrl does http://www.w3.org/1999/02/22-rdf-syntax-ns.
-URL construction took 21 ns on average, including free
-benchmark newIp6Url does http://[6874:7470:3A2F:2F77:7777:2E77:332E:6F72]/1999/02/22-rdf-syntax-ns.
-IPv6 URL construction took 29 ns on average, including free
+URL construction took 23.1 ns on average
+benchmark newIp6Url does http://[6874:7470:3a2f:2f77:7777:2e77:332e:6f72]/1999/02/22-rdf-syntax-ns.
+IPv6 URL construction took 30.3 ns on average
 benchmark newUrn does urn:bench:99%2F02%2F22-rdf-syntax-ns%23Description.
-URN construction took 21 ns on average, including free
+URN construction took 21.8 ns on average
 benchmark parse does http://www.w3.org/1999/02/22-rdf-syntax-ns#Description.
-parse took 26 ns on average
-```
+parse took 23.8 ns on average
+``
 
 
 ## Standard Compliance

@@ -49,7 +49,7 @@ typedef unsigned int zuri_error;
 
 // Parse interpretates the input if and only if the string is a valid URI.
 zuri_error
-zuri_parse2k(struct zuri2k *dst, const char *uri, size_t len);
+zuri_parse2k(struct zuri2k *dst, const char *uri);
 
 // Error names are tokens in camel-case. See ParseError in Urview.zig for a
 // detailed description of each.
