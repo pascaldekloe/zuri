@@ -10,40 +10,23 @@ pub fn build(b: *std.Build) void {
     // for restricting supported target set are available.
     const target = b.standardTargetOptions(.{});
 
-    // Standard optimization options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
-    // set a preferred release mode, allowing the user to decide how to optimize.
-    const optimize = b.standardOptimizeOption(.{});
-
-    const urview = b.addStaticLibrary(.{
-        .name = "urview",
-        .root_source_file = .{ .path = "Urview.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
-    b.installArtifact(urview);
-    const urlink = b.addStaticLibrary(.{
-        .name = "urlink",
-        .root_source_file = .{ .path = "Urlink.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
-    b.installArtifact(urlink);
-
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
-    const urview_tests = b.addTest(.{
+    const run_urview_tests = b.addRunArtifact(b.addTest(.{
         .root_source_file = .{ .path = "Urview.zig" },
         .target = target,
-        .optimize = optimize,
-    });
-    const run_urview_tests = b.addRunArtifact(urview_tests);
-    const urlink_tests = b.addTest(.{
+        .optimize = std.builtin.OptimizeMode.Debug,
+    }));
+    const run_urlink_tests = b.addRunArtifact(b.addTest(.{
         .root_source_file = .{ .path = "Urlink.zig" },
         .target = target,
-        .optimize = optimize,
-    });
-    const run_urlink_tests = b.addRunArtifact(urlink_tests);
+        .optimize = std.builtin.OptimizeMode.Debug,
+    }));
+    const run_urname_tests = b.addRunArtifact(b.addTest(.{
+        .root_source_file = .{ .path = "Urname.zig" },
+        .target = target,
+        .optimize = std.builtin.OptimizeMode.Debug,
+    }));
 
     // This creates a build step. It will be visible in the `zig build --help` menu,
     // and can be selected like this: `zig build test`
@@ -51,26 +34,42 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&run_urview_tests.step);
     test_step.dependOn(&run_urlink_tests.step);
+    test_step.dependOn(&run_urname_tests.step);
 
+    // fuzzer commands
     b.installArtifact(b.addExecutable(.{
         .name = "fuzz-url",
         .root_source_file = .{ .path = "fuzz-url.zig" },
+        .target = target,
         .optimize = std.builtin.OptimizeMode.ReleaseSafe,
     }));
     b.installArtifact(b.addExecutable(.{
         .name = "fuzz-urn",
         .root_source_file = .{ .path = "fuzz-urn.zig" },
+        .target = target,
         .optimize = std.builtin.OptimizeMode.ReleaseSafe,
     }));
     b.installArtifact(b.addExecutable(.{
         .name = "fuzz-urview",
         .root_source_file = .{ .path = "fuzz-urview.zig" },
+        .target = target,
         .optimize = std.builtin.OptimizeMode.ReleaseSafe,
     }));
 
+    // benchmark command
     b.installArtifact(b.addExecutable(.{
         .name = "bench",
         .root_source_file = .{ .path = "bench.zig" },
+        .target = target,
         .optimize = std.builtin.OptimizeMode.ReleaseFast,
     }));
+
+    // C library
+    const zuri = b.addStaticLibrary(.{
+        .name = "zuri",
+        .root_source_file = .{ .path = "zuri.zig" },
+        .target = target,
+        .optimize = std.builtin.OptimizeMode.ReleaseFast,
+    });
+    b.installArtifact(zuri);
 }
