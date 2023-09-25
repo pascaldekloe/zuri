@@ -1,6 +1,7 @@
 //! Strict readings of URIs.
 
 const std = @import("std");
+const indexOf = std.mem.indexOf;
 const parseInt = std.fmt.parseInt;
 const Allocator = std.mem.Allocator;
 
@@ -67,6 +68,20 @@ pub fn rawHost(ur: Urview) []const u8 {
 /// The host component is optional, even with an authority present.
 pub fn hasHost(ur: Urview) bool {
     return ur.host_offset < ur.port_offset;
+}
+
+/// The host component can be an IPv6 address in square brackets ("[" and "]").
+pub fn hasIp6Address(ur: Urview) bool {
+    return ur.port_offset - ur.host_offset > 2 and ur.uri_ptr[ur.host_offset] == '[' and ur.uri_ptr[ur.host_offset + 1] != 'v';
+}
+
+/// The raw IPv6 zone identifier starts with "%25" when present.
+pub fn rawIp6Zone(ur: Urview) []const u8 {
+    if (ur.hasIp6Address()) {
+        const raw = ur.rawHost();
+        if (indexOf(u8, raw, "%25")) |i| return raw[i .. raw.len - 1];
+    }
+    return "";
 }
 
 /// The raw port subcomponent starts with ":" when present.
@@ -175,6 +190,33 @@ pub fn host(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8 {
 pub fn equalsHost(ur: Urview, match: []const u8) bool {
     if (ur.authority_offset >= ur.path_offset) return false;
     return equalsString(ur.rawHost(), match);
+}
+
+/// Ip6Zone returns the IPv6 zone idententifier from the host component with any
+/// and all percent-encodings resolved. None of the applicable standandards put
+/// any constraints on the byte content. The return may or may not be a valid
+/// UTF-8 string. Caller owns the returned memory.
+pub fn ip6Zone(ur: Urview, m: Allocator) error{OutOfMemory}![]const u8 {
+    const raw = ur.rawIp6Zone();
+    if (raw.len == 0) return "";
+    return resolvePercentEncodings(raw[3..], m);
+}
+
+/// EqualsIp6Zone returns the IPv6 zone idententifier from the host component
+/// with any and all percent-encodings resolved equals match. Absent components
+/// don't equal any match.
+pub fn equalsIp6Zone(ur: Urview, match: []const u8) bool {
+    const raw = ur.rawIp6Zone();
+    return raw.len != 0 and equalsString(raw[3..], match);
+}
+
+test "IPv6 Zone Identifier" {
+    var buf: [32]u8 = undefined;
+    var fix = std.heap.FixedBufferAllocator.init(&buf);
+    try expectEqualStrings("en1", try (try parse("http://[fe80::a%25en1]")).ip6Zone(fix.allocator()));
+    try expectEqualStrings("🏯", try (try parse("http://[::1%25%F0%9F%8F%AF]")).ip6Zone(fix.allocator()));
+    try expect((try parse("http://[fe80::a%25en1]")).equalsIp6Zone("en1"));
+    try expect((try parse("http://[::1%25%F0%9F%8F%AF]")).equalsIp6Zone("🏯"));
 }
 
 /// TCP and UDP use 16-bit port numbers (range 0–65535). The return is null when
@@ -1389,15 +1431,15 @@ fn fragmentContinue(ur: *Urview, offset: usize) ParseError!void {
     }
 }
 
-fn resolvePercentEncodings(raw: []const u8, m: std.mem.Allocator) error{OutOfMemory}![:0]u8 {
+fn resolvePercentEncodings(raw: []const u8, m: Allocator) error{OutOfMemory}![:0]u8 {
     return resolvePercentEncodingsWithToLower(raw, false, m);
 }
 
-fn resolvePercentEncodingsToLower(raw: []const u8, m: std.mem.Allocator) error{OutOfMemory}![:0]u8 {
+fn resolvePercentEncodingsToLower(raw: []const u8, m: Allocator) error{OutOfMemory}![:0]u8 {
     return resolvePercentEncodingsWithToLower(raw, true, m);
 }
 
-fn resolvePercentEncodingsWithToLower(raw: []const u8, comptime toLower: bool, m: std.mem.Allocator) error{OutOfMemory}![:0]u8 {
+fn resolvePercentEncodingsWithToLower(raw: []const u8, comptime toLower: bool, m: Allocator) error{OutOfMemory}![:0]u8 {
     var i: usize = 0; // raw index
     var n: usize = 0; // output count [octets]
     while (raw.len - i > 2) : (n += 1)
