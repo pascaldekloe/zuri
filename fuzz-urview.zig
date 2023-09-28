@@ -23,6 +23,7 @@ pub fn main() !void {
 
     try verifyConstraints(ur, readb[0..readn]);
     if (!fuzzFail) try verifyEscapeMatch(ur);
+    mem.doNotOptimizeAway(ur.hasDomainName());
     mem.doNotOptimizeAway(ur.portAsU16());
 
     allocator.free(try ur.pathNorm("", allocator));

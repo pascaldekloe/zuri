@@ -124,7 +124,7 @@ benchmark newUrn does urn:bench:99%2F02%2F22-rdf-syntax-ns%23Description.
 URN construction took 21.8 ns on average
 benchmark parse does http://www.w3.org/1999/02/22-rdf-syntax-ns#Description.
 parse took 23.8 ns on average
-``
+```
 
 
 ## Standard Compliance
@@ -133,6 +133,9 @@ parse took 23.8 ns on average
  * “Uniform Resource Locators (URL)” RFC 1738
  * “IPv6 Zone IDs in URIs” RFC 6874
  * “URN Syntax” RFC 2141
+ * “Domain Concepts and Facilities” RFC 1034
+ * “IDNA” RFC 3490
+ * “IDNA Punycode” RFC 3492
 
 “Uniform Resource Names (URNs)” RFC 8141 is omitted on purpose. The publication
 introduces an odd query syntax with many constraints and no explaination of its

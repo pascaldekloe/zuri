@@ -192,6 +192,92 @@ pub fn equalsHost(ur: Urview, match: []const u8) bool {
     return equalsString(ur.rawHost(), match);
 }
 
+/// HasDomainName returns whether the host component is valid domain name in the
+/// DNS. A trailing dot is permitted, yet an empty string or a single dot won't.
+///
+/// The top-level domain is NOT verified against the official IANA registration.
+/// See <https://data.iana.org/TLD/tlds-alpha-by-domain.txt> for the full list.
+pub fn hasDomainName(ur: Urview) bool {
+    const raw = ur.rawHost();
+
+    // “To simplify implementations, the total number of octets that represent a
+    // domain name (i.e., the sum of all label octets and label lengths) is
+    // limited to 255.”
+    // — RFC 1034
+    const name_limit = 253; // excluding first size-prefix and null terminator
+    var n: usize = 0;
+
+    if (raw.len == 0) return false;
+    var i: usize = 0;
+    read_label: while (true) {
+        // “Each node has a label, which is zero to 63 octets in length.”
+        // — RFC 1034
+        const node_limit = 63;
+        const node_offset = i;
+
+        var c = raw[i];
+        i += 1;
+        if (c == '%') {
+            c = (hex_table[raw[i]] << 4) | hex_table[raw[i + 1]];
+            i += 2;
+        }
+        switch (c) {
+            'A'...'Z', 'a'...'z' => n += 1,
+            else => return false, // denies empty labels
+        }
+
+        while (true) {
+            if (i >= raw.len) return c != '-' and n <= name_limit;
+
+            var more = raw[i];
+            i += 1;
+            if (more == '%') {
+                more = (hex_table[raw[i]] << 4) | hex_table[raw[i + 1]];
+                i += 2;
+            }
+            switch (more) {
+                'A'...'Z', 'a'...'z', '0'...'9', '-' => {
+                    c = more;
+                    n += 1;
+                },
+                '.' => {
+                    if (c == '-' or i - node_offset > node_limit) return false;
+                    // trailing dot check
+                    if (i >= raw.len) return n <= name_limit;
+                    n += 1;
+                    continue :read_label;
+                },
+                else => return false,
+            }
+        }
+    }
+}
+
+test "Domain Name Detection" {
+    try expectEqual(true, (try parse("http://www.example.com")).hasDomainName());
+    try expectEqual(true, (try parse("http://www.example.com./")).hasDomainName());
+    try expectEqual(true, (try parse("http://xn--mller-kva.ch")).hasDomainName());
+
+    try expectEqual(false, (try parse("example://")).hasDomainName());
+    try expectEqual(false, (try parse("example://.")).hasDomainName());
+    try expectEqual(false, (try parse("example://.com")).hasDomainName());
+    try expectEqual(false, (try parse("example://.example.com")).hasDomainName());
+    try expectEqual(true, (try parse("example://com")).hasDomainName());
+    try expectEqual(true, (try parse("example://com.")).hasDomainName());
+    try expectEqual(true, (try parse("example://c.c4.c-4")).hasDomainName());
+
+    try expectEqual(false, (try parse("example://3.example.com")).hasDomainName());
+    try expectEqual(false, (try parse("example://xn-.com")).hasDomainName());
+    try expectEqual(false, (try parse("example://xn--.com")).hasDomainName());
+
+    try expectEqual(true, (try parse("http://%57%2Eexample%2Ecom")).hasDomainName());
+    try expectEqual(false, (try parse("http://%2Eexample%2Ecom")).hasDomainName());
+    try expectEqual(false, (try parse("http://ww%2D.example.com")).hasDomainName());
+    try expectEqual(false, (try parse("http://w%3aw.example.com")).hasDomainName());
+    try expectEqual(false, (try parse("http://www.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com")).hasDomainName());
+    try expectEqual(false, (try parse("http://www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.example.com")).hasDomainName());
+}
+
 /// Ip6Zone returns the IPv6 zone idententifier from the host component with any
 /// and all percent-encodings resolved. None of the applicable standandards put
 /// any constraints on the byte content. The return may or may not be a valid
@@ -1489,7 +1575,7 @@ fn verifyProcentEncoding(p: [*:0]const u8, i: usize) ParseError!void {
         return ParseError.BrokenPercentEncoding;
 }
 
-const hex_table: [256]u8 = buildHexTable();
+const hex_table = buildHexTable();
 
 fn buildHexTable() [256]u8 {
     var table: [256]u8 = undefined;
