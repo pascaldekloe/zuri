@@ -1,9 +1,19 @@
 //! Strict readings of URIs.
 
 const std = @import("std");
-const indexOf = std.mem.indexOf;
+
+const assert = std.debug.assert;
+
 const parseInt = std.fmt.parseInt;
+
 const Allocator = std.mem.Allocator;
+const copyBackwards = std.mem.copyBackwards;
+const indexOf = std.mem.indexOf;
+const indexOfScalar = std.mem.indexOfScalar;
+const lastIndexOfScalar = std.mem.lastIndexOfScalar;
+
+const utf8CodepointSequenceLength = std.unicode.utf8CodepointSequenceLength;
+const utf8Encode = std.unicode.utf8Encode;
 
 const test_allocator = std.testing.allocator;
 const expect = std.testing.expect;
@@ -276,6 +286,208 @@ test "Domain Name Detection" {
     try expectEqual(false, (try parse("http://w%3aw.example.com")).hasDomainName());
     try expectEqual(false, (try parse("http://www.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com")).hasDomainName());
     try expectEqual(false, (try parse("http://www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.example.com")).hasDomainName());
+}
+
+/// IDN allows for characters beyond the DNS range. The return is in UTF-8, with
+/// an empty string (null-terminated) for non-domain-name host components.
+/// Caller owns the returned memory.
+pub fn internationalDomainName(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8 {
+    if (!ur.hasDomainName()) return m.dupeZ(u8, "");
+    const raw = ur.rawHost();
+
+    // Collect as Unicode codepoints in a heap buffer first.
+    // Punycode produces at most one codepoint per input octet.
+    var buf: [253]u21 = undefined;
+    var bufn: usize = 0;
+
+    var offset: usize = 0;
+    while (offset < raw.len) {
+        // write separator
+        if (offset != 0) {
+            buf[bufn] = '.';
+            bufn += 1;
+        }
+
+        // read label
+        const end = if (indexOfScalar(u8, raw[offset..], '.')) |i| offset + i else raw.len;
+        const raw_label = raw[offset..end];
+        offset = end + 1;
+
+        // try as punycode
+        const codepoint_count = readPunycodeLabel(buf[bufn..], raw_label);
+        if (codepoint_count != 0) {
+            // got an IDN label
+            bufn += codepoint_count;
+            continue;
+        }
+
+        // copy non-punycode
+        var i: usize = 0;
+        while (i < raw_label.len) : (bufn += 1) {
+            const c = raw_label[i];
+            i += 1;
+            if (c != '%') {
+                buf[bufn] = c;
+            } else {
+                // already validated as alphanum/hypen
+                buf[bufn] = (hex_table[raw_label[i]] << 4) | hex_table[raw_label[i + 1]];
+                i += 2;
+            }
+        }
+    }
+
+    var utf8_size: usize = 0;
+    for (buf[0..bufn]) |c| utf8_size += utf8CodepointSequenceLength(c) catch unreachable;
+    var utf8 = try m.allocSentinel(u8, utf8_size, 0);
+    var write_index: usize = 0;
+    for (buf[0..bufn]) |c| write_index += utf8Encode(c, utf8[write_index..]) catch unreachable;
+    assert(write_index == utf8.len);
+    return utf8;
+}
+
+test "IDN" {
+    var buf: [2048]u8 = undefined;
+    var fix = std.heap.FixedBufferAllocator.init(&buf);
+    try expectEqualStrings("台灣", try (try parse("http://xn--kpry57d")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("台灣", try (try parse("http://XN--KPRY57D")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("台灣", try (try parse("http://xN--kPrY57d")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("台灣", try (try parse("http://Xn--KpRy57D")).internationalDomainName(fix.allocator()));
+
+    try expectEqualStrings("müller.ch", try (try parse("http://xn--mller-kva.ch")).internationalDomainName(fix.allocator()));
+
+    try expectEqualStrings("🔥👯♀✨", try (try parse("example://xn--e5h45at481i1ua")).internationalDomainName(fix.allocator()));
+
+    // “Sample strings” A through R from RFC 3492, subsection 7.1
+    try expectEqualStrings("ليهمابتكلموشعربي؟", try (try parse("example://xn--egbpdaj6bu4bxfgehfvwxn")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("他们为什么不说中文", try (try parse("example://xn--ihqwcrb4cv8a8dqg056pqjye")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("他們爲什麽不說中文", try (try parse("example://xn--ihqwctvzc91f659drss3x8bo0yb")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("Pročprostěnemluvíčesky", try (try parse("example://xn--Proprostnemluvesky-uyb24dma41a")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("למההםפשוטלאמדבריםעברית", try (try parse("example://xn--4dbcagdahymbxekheh6e0a7fei0b")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("यहलोगहिन्दीक्योंनहींबोलसकतेहैं", try (try parse("example://xn--i1baa7eci9glrd9b2ae1bj0hfcgg6iyaf8o0a1dig0cd")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("なぜみんな日本語を話してくれないのか", try (try parse("example://xn--n8jok5ay5dzabd5bym9f0cm5685rrjetr6pdxa")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("세계의모든사람들이한국어를이해한다면얼마나좋을까", try (try parse("example://xn--989aomsvi5e83db1d2a355cv1e0vak1dwrv93d5xbh15a0dt30a5jpsd879ccm6fea98c")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("почемужеонинеговорятпорусски", try (try parse("example://xn--b1abfaaepdrnnbgefbaDotcwatmq2g4l")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("PorquénopuedensimplementehablarenEspañol", try (try parse("example://xn--PorqunopuedensimplementehablarenEspaol-fmd56a")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("TạisaohọkhôngthểchỉnóitiếngViệt", try (try parse("example://xn--TisaohkhngthchnitingVit-kjcr8268qyxafd2f1b9g")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("3年B組金八先生", try (try parse("example://xn--3B-ww4c5e180e575a65lsy2b")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("安室奈美恵-with-SUPER-MONKEYS", try (try parse("example://xn---with-SUPER-MONKEYS-pc58ag80a8qai00g7n9n")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("Hello-Another-Way-それぞれの場所", try (try parse("example://xn--Hello-Another-Way--fc4qua05auwb3674vfr0b")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("ひとつ屋根の下2", try (try parse("example://xn--2-u9tlzr9756bt3uc0v")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("MajiでKoiする5秒前", try (try parse("example://xn--MajiKoi5-783gue6qz075azm5e")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("パフィーdeルンバ", try (try parse("example://xn--de-jg4avhby1noc0d")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("そのスピードで", try (try parse("example://xn--d9juau41awczczp")).internationalDomainName(fix.allocator()));
+}
+
+/// ReadPunycode parses raw_in until the first dot character (".") or EOF.
+/// Readn is set to the number of octets read from raw_in and the return has
+/// the codepoint ouput count to buf. Raw input may contain percent encodings.
+fn readPunycodeLabel(buf: []u21, raw: []const u8) usize {
+    var bufn: usize = 0; // read count in octets (to return)
+
+    // “The ACE prefix for IDNA is "xn--" or any capitalization thereof.”
+    // “(ACE stands for ASCII Compatible Encoding)”
+    // — RFC 3490, section 5.
+    const ace_prefix = "xn--";
+
+    // TODO(pascaldekloe): match percent encodings too
+    if (raw.len < 4 or raw[0] != 'x' and raw[0] != 'X' or raw[1] != 'n' and raw[1] != 'N' or raw[2] != '-' or raw[3] != '-')
+        return 0;
+    var rawi: usize = ace_prefix.len;
+
+    const segregation_end = lastIndexOfScalar(u8, raw, '-').?;
+    if (segregation_end > ace_prefix.len) {
+        for (ace_prefix.len..segregation_end) |i| {
+            buf[bufn] = raw[i];
+            bufn += 1;
+        }
+        rawi = segregation_end + 1;
+    }
+
+    const base = 36; // case-insensitive alphanumeric
+
+    // “Decoding procedure” from RFC 3492, subsection 6.2
+    var i: usize = 0; // write index is not sequential
+    var codepoint: usize = 128; // called n in spec
+    var bias: usize = 72;
+
+    while (rawi < raw.len) {
+        const old_i: usize = i;
+
+        var digit = @as(usize, base36_table[raw[rawi]]);
+        rawi += 1;
+        if (digit >= base) return 0;
+
+        // no overflow: i gets truncated to modulo readn
+        i += digit;
+
+        var weight: usize = 1; // called w in spec, a.k.a. the scale factor
+        var nbase: usize = base; // called k in spec
+
+        var t: u21 = if (base <= bias) 1 else @min(base - bias, 26);
+        while (digit >= t) {
+            // update weight
+            const mulw = @mulWithOverflow(weight, base - t);
+            if (mulw[1] != 0) return 0;
+            weight = mulw[0];
+
+            nbase += base;
+
+            if (rawi >= raw.len) return 0;
+            digit = @as(usize, base36_table[raw[rawi]]);
+            rawi += 1;
+            if (digit >= base) return 0;
+
+            { // update i
+                const mul = @mulWithOverflow(digit, weight);
+                if (mul[1] != 0) return 0;
+                const add = @addWithOverflow(mul[0], i);
+                if (add[1] != 0) return 0;
+                i = add[0];
+            }
+
+            // update t, range 1–26
+            t = if (nbase <= bias) 1 else @min(nbase - bias, 26);
+        }
+
+        bufn += 1; // grow with one codepoint
+
+        // see “Bias adaptation function” from RFC 3492, subsection 6.1
+        var delta = i - old_i;
+        delta /= if (old_i == 0) 700 else 2;
+        delta += delta / bufn;
+        bias = 0; // omit k from spec
+        while (delta > ((36 - 1) * 26) / 2) {
+            delta /= base - 1;
+            bias += base;
+        }
+        bias += (base * delta) / (delta + 38);
+
+        // define the new codepoint
+        codepoint += i / bufn;
+        // check range and not surrogate
+        if (codepoint > 0x10ffff or codepoint >= 0xd800 and codepoint <= 0xdfff) return 0;
+
+        // insert new codepoint at i(ndex)
+        i %= bufn;
+        copyBackwards(u21, buf[i + 1 ..], buf[i .. bufn - 1]);
+        buf[i] = @intCast(codepoint); // range checked above
+        i += 1;
+    }
+
+    return bufn;
+}
+
+const base36_table = buildBase36Table();
+
+fn buildBase36Table() [256]u6 {
+    var table: [256]u6 = undefined;
+    for (0..256) |c| table[c] = switch (c) {
+        '0'...'9' => c - '0' + 26,
+        'A'...'Z' => c - 'A',
+        'a'...'z' => c - 'a',
+        else => 63,
+    };
+    return table;
 }
 
 /// Ip6Zone returns the IPv6 zone idententifier from the host component with any
