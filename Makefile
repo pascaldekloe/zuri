@@ -33,16 +33,16 @@ Urview-doc: Urview.zig
 .PHONY: fuzz-url-console
 fuzz-url-console: zig-out/bin/fuzz-url
 	# samples not applicable yet it does not matter
-	afl-fuzz -i sample -o fuzz-url -O -g 0 -G 512 -- $?
+	afl-fuzz -i sample -o fuzz-url-out -O -g 0 -G 512 -- $?
 
 .PHONY: fuzz-urn-console
 fuzz-urn-console: zig-out/bin/fuzz-urn
 	# samples not applicable yet it does not matter
-	afl-fuzz -i sample -o fuzz-urn -O -g 0 -G 64 -- $?
+	afl-fuzz -i sample -o fuzz-urn-out -O -g 0 -G 64 -- $?
 
 .PHONY: fuzz-urview-console
 fuzz-urview-console: zig-out/bin/fuzz-urview
-	afl-fuzz -i sample -o fuzz-urview -O -g 0 -G 64 -- $?
+	afl-fuzz -i sample -o fuzz-urview-out -O -g 0 -G 64 -- $?
 
 
 .PHONY: fmt
