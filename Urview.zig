@@ -380,62 +380,65 @@ fn readPunycodeLabel(buf: []u21, raw: []const u8) usize {
         }
         rawi = segregation_split + 1;
     }
+    assert(rawi < raw.len); // labels can't end in '-'
 
     const base = 36; // case-insensitive alphanumeric
 
     // “Decoding procedure” from RFC 3492, subsection 6.2
-    var i: usize = 0; // write index is not sequential
     var codepoint: usize = 128; // called n in spec
+    var i: usize = 0; // write index is not sequential
     var bias: usize = 72;
 
-    while (rawi < raw.len) {
+    parse_codepoint: while (true) {
         const old_i: usize = i;
 
         var digit = @as(usize, base36_table[raw[rawi]]);
         rawi += 1;
-        if (digit >= base) return 0;
+        if (digit >= base) break :parse_codepoint;
 
-        // no overflow: i gets truncated to modulo readn
-        i += digit;
+        i += digit; // won't overflow as i gets truncated to modulo readn
 
         var weight: usize = 1; // called w in spec, a.k.a. the scale factor
-        var nbase: usize = base; // called k in spec
+        var base_step: usize = base + base; // called k in spec
 
-        var t: u21 = if (base <= bias) 1 else @min(base - bias, 26);
-        while (digit >= t) {
-            // update weight
-            const mulw = @mulWithOverflow(weight, base - t);
-            if (mulw[1] != 0) return 0;
-            weight = mulw[0];
+        const t_min = 1;
+        const t_max = 26;
+        var t: usize = if (base <= bias) t_min else @min(base - bias, t_max);
+        while (digit >= t) : (base_step += base) {
+            // update weight, inbetween × 10 and × 35
+            weight *= base - t;
 
-            nbase += base;
-
-            if (rawi >= raw.len) return 0;
+            // read digit
+            if (rawi >= raw.len) break :parse_codepoint;
             digit = @as(usize, base36_table[raw[rawi]]);
             rawi += 1;
-            if (digit >= base) return 0;
+            if (digit >= base) break :parse_codepoint;
 
-            { // update i
-                const mul = @mulWithOverflow(digit, weight);
-                if (mul[1] != 0) return 0;
-                const add = @addWithOverflow(mul[0], i);
-                if (add[1] != 0) return 0;
-                i = add[0];
-            }
+            // update i
+            i += digit * weight;
+            // Failfast on i ÷ bufn ≥ U+10ffff prevents codepoint overflow
+            // below and it also elminates the overflow checks on weight.
+            if (i > 254 * 0x10ffff) break :parse_codepoint;
 
             // update t, range 1–26
-            t = if (nbase <= bias) 1 else @min(nbase - bias, 26);
+            t = if (base_step <= bias) t_min else @min(base_step - bias, t_max);
         }
 
         bufn += 1; // grow with one codepoint
 
-        // see “Bias adaptation function” from RFC 3492, subsection 6.1
+        // set bias conform “Bias adaptation” from RFC 3492, subsection 3.4
         var delta = i - old_i;
+        // “Delta is scaled in order to avoid overflow in the next step”
         delta /= if (old_i == 0) 700 else 2;
+        // “Delta is increased to compensate for the fact that the next delta
+        // will be inserting into a longer string”
         delta += delta / bufn;
         bias = 0; // omit k from spec
-        while (delta > ((36 - 1) * 26) / 2) {
-            delta /= base - 1;
+        // “Delta is repeatedly divided until it falls within a threshold, to
+        // predict the minimum number of digits needed to represent the next
+        // delta”
+        while (delta > ((base - t_min) * t_max) / 2) {
+            delta /= base - t_min;
             bias += base;
         }
         bias += (base * delta) / (delta + 38);
@@ -443,16 +446,19 @@ fn readPunycodeLabel(buf: []u21, raw: []const u8) usize {
         // define the new codepoint
         codepoint += i / bufn;
         // check range and not surrogate
-        if (codepoint > 0x10ffff or codepoint >= 0xd800 and codepoint <= 0xdfff) return 0;
+        if (codepoint > 0x10ffff or codepoint >= 0xd800 and codepoint <= 0xdfff)
+            break :parse_codepoint;
 
         // insert new codepoint at i(ndex)
         i %= bufn;
         copyBackwards(u21, buf[i + 1 ..], buf[i .. bufn - 1]);
         buf[i] = @intCast(codepoint); // range checked above
         i += 1;
+
+        if (rawi >= raw.len) return bufn;
     }
 
-    return bufn;
+    return 0; // failed
 }
 
 const base36_table = buildBase36Table();
