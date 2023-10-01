@@ -37,24 +37,39 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_urname_tests.step);
 
     // fuzzer commands
-    b.installArtifact(b.addExecutable(.{
-        .name = "fuzz-url",
-        .root_source_file = .{ .path = "fuzz-url.zig" },
-        .target = target,
-        .optimize = std.builtin.OptimizeMode.ReleaseSafe,
-    }));
-    b.installArtifact(b.addExecutable(.{
-        .name = "fuzz-urn",
-        .root_source_file = .{ .path = "fuzz-urn.zig" },
-        .target = target,
-        .optimize = std.builtin.OptimizeMode.ReleaseSafe,
-    }));
-    b.installArtifact(b.addExecutable(.{
-        .name = "fuzz-urview",
-        .root_source_file = .{ .path = "fuzz-urview.zig" },
-        .target = target,
-        .optimize = std.builtin.OptimizeMode.ReleaseSafe,
-    }));
+    const fuzzers = [_]*std.Build.Step.Compile{
+        b.addExecutable(.{
+            .name = "fuzz-url",
+            .root_source_file = .{ .path = "fuzz-url.zig" },
+            .target = target,
+            .optimize = std.builtin.OptimizeMode.ReleaseSafe,
+        }),
+        b.addExecutable(.{
+            .name = "fuzz-urn",
+            .root_source_file = .{ .path = "fuzz-urn.zig" },
+            .target = target,
+            .optimize = std.builtin.OptimizeMode.ReleaseSafe,
+        }),
+        b.addExecutable(.{
+            .name = "fuzz-urview",
+            .root_source_file = .{ .path = "fuzz-urview.zig" },
+            .target = target,
+            .optimize = std.builtin.OptimizeMode.ReleaseSafe,
+        }),
+    };
+    for (fuzzers) |exe| {
+        b.installArtifact(exe);
+
+        // include quick-check
+        const samples = [_][]const u8{ "sample/bloat", "sample/empty", "sample/semantic", "sample/tricky" };
+        for (samples) |path| {
+            var run = b.addRunArtifact(exe);
+            run.setStdIn(.{ .lazy_path = .{ .path = path } });
+            run.expectExitCode(0);
+            run.setName(std.fmt.allocPrint(b.allocator, "{s} {s}", .{ exe.name, path }) catch @panic("OOM"));
+            test_step.dependOn(&run.step);
+        }
+    }
 
     // benchmark command
     b.installArtifact(b.addExecutable(.{

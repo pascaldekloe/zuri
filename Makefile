@@ -50,21 +50,7 @@ fmt: *.zig
 	zig $@ $?
 
 .PHONY: dist
-dist: test fmt zig-out test-samples Urlink-doc Urname-doc Urview-doc
-
-# TODO(pascaldekloe): Replace in build.zig pending
-# <https://github.com/ziglang/zig/issues/16866>.
-.PHONY: test-samples
-test-samples: zig-out/bin/fuzz-urview zig-out/bin/fuzz-url zig-out/bin/fuzz-urn
-	./zig-out/bin/fuzz-urview < sample/bloat
-	./zig-out/bin/fuzz-urview < sample/empty
-	./zig-out/bin/fuzz-urview < sample/tricky
-	./zig-out/bin/fuzz-urview < /dev/null
-	./zig-out/bin/fuzz-url < /dev/null
-	./zig-out/bin/fuzz-urn < /dev/null
-	./zig-out/bin/fuzz-urview < /dev/zero
-	./zig-out/bin/fuzz-url < /dev/zero
-	./zig-out/bin/fuzz-urn < /dev/zero
+dist: test fmt zig-out Urlink-doc Urname-doc Urview-doc
 
 .PHONY: clean
 clean:
