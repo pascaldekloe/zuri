@@ -292,7 +292,7 @@ pub fn internationalDomainName(ur: Urview, m: Allocator) error{OutOfMemory}![:0]
         // read label
         var end = raw.len;
         if (indexOfScalar(u8, raw[offset..], '.')) |i|
-            end = i;
+            end = offset + i;
         const raw_label = raw[offset..end];
 
         // try as punycode
