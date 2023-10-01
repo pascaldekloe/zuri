@@ -202,138 +202,117 @@ pub fn equalsHost(ur: Urview, match: []const u8) bool {
     return equalsString(ur.rawHost(), match);
 }
 
-/// HasDomainName returns whether the host component is valid domain name in the
-/// DNS. A trailing dot is permitted, yet an empty string or a single dot won't.
+/// DomainName returns the host component if and only if it is a valid domain
+/// name in the DNS. A trailing dot is permitted (to indicate an absolute domain
+/// name), yet the empty string and a single dot are not.
 ///
 /// The top-level domain is NOT verified against the official IANA registration.
 /// See <https://data.iana.org/TLD/tlds-alpha-by-domain.txt> for the full list.
-pub fn hasDomainName(ur: Urview) bool {
+pub fn domainName(ur: Urview) []const u8 {
     const raw = ur.rawHost();
 
     // “To simplify implementations, the total number of octets that represent a
     // domain name (i.e., the sum of all label octets and label lengths) is
     // limited to 255.”
     // — RFC 1034
-    const name_limit = 253; // excluding first size-prefix and null terminator
-    var n: usize = 0;
+    //
+    // “URI producing applications must not use percent-encoding in host unless
+    // it is used to represent a UTF-8 character sequence.”
+    // — RFC 3986
+    if (raw.len == 0 or raw.len > 253 and (raw[253] != '.' or raw.len != 254))
+        return "";
 
-    if (raw.len == 0) return false;
     var i: usize = 0;
-    read_label: while (true) {
+    while (i < raw.len) {
         // “Each node has a label, which is zero to 63 octets in length.”
         // — RFC 1034
-        const node_limit = 63;
-        const node_offset = i;
+        const label_limit = 63;
+        const label_offset = i;
 
-        var c = raw[i];
+        switch (raw[i]) {
+            'A'...'Z', 'a'...'z' => {},
+            else => return "",
+        }
         i += 1;
-        if (c == '%') {
-            c = (hex_table[raw[i]] << 4) | hex_table[raw[i + 1]];
-            i += 2;
-        }
-        switch (c) {
-            'A'...'Z', 'a'...'z' => n += 1,
-            else => return false, // denies empty labels
-        }
 
-        while (true) {
-            if (i >= raw.len) return c != '-' and n <= name_limit;
+        while (i < raw.len and raw[i] != '.') : (i += 1) switch (raw[i]) {
+            'A'...'Z', 'a'...'z', '0'...'9', '-' => {},
+            else => return "",
+        };
+        // i is at EOF or a dot
 
-            var more = raw[i];
-            i += 1;
-            if (more == '%') {
-                more = (hex_table[raw[i]] << 4) | hex_table[raw[i + 1]];
-                i += 2;
-            }
-            switch (more) {
-                'A'...'Z', 'a'...'z', '0'...'9', '-' => {
-                    c = more;
-                    n += 1;
-                },
-                '.' => {
-                    if (c == '-' or i - node_offset > node_limit) return false;
-                    // trailing dot check
-                    if (i >= raw.len) return n <= name_limit;
-                    n += 1;
-                    continue :read_label;
-                },
-                else => return false,
-            }
-        }
+        if (raw[i - 1] == '-' or i - label_offset > label_limit)
+            return "";
+        i += 1;
     }
+
+    return raw;
 }
 
-test "Domain Name Detection" {
-    try expectEqual(true, (try parse("http://www.example.com")).hasDomainName());
-    try expectEqual(true, (try parse("http://www.example.com./")).hasDomainName());
-    try expectEqual(true, (try parse("http://xn--mller-kva.ch")).hasDomainName());
+test "Domain Names" {
+    try expectEqualStrings("www.example.com", (try parse("http://www.example.com")).domainName());
+    try expectEqualStrings("www.example.com.", (try parse("http://www.example.com./")).domainName());
+    try expectEqualStrings("xn--mller-kva.ch", (try parse("http://xn--mller-kva.ch")).domainName());
 
-    try expectEqual(false, (try parse("example://")).hasDomainName());
-    try expectEqual(false, (try parse("example://.")).hasDomainName());
-    try expectEqual(false, (try parse("example://.com")).hasDomainName());
-    try expectEqual(false, (try parse("example://.example.com")).hasDomainName());
-    try expectEqual(true, (try parse("example://com")).hasDomainName());
-    try expectEqual(true, (try parse("example://com.")).hasDomainName());
-    try expectEqual(true, (try parse("example://c.c4.c-4")).hasDomainName());
+    try expectEqualStrings("", (try parse("example://")).domainName());
+    try expectEqualStrings("", (try parse("example://.")).domainName());
+    try expectEqualStrings("", (try parse("example://.com")).domainName());
+    try expectEqualStrings("", (try parse("example://.example.com")).domainName());
+    try expectEqualStrings("com", (try parse("example://com")).domainName());
+    try expectEqualStrings("com.", (try parse("example://com.")).domainName());
+    try expectEqualStrings("c.c4.c-4", (try parse("example://c.c4.c-4")).domainName());
 
-    try expectEqual(false, (try parse("example://3.example.com")).hasDomainName());
-    try expectEqual(false, (try parse("example://xn-.com")).hasDomainName());
-    try expectEqual(false, (try parse("example://xn--.com")).hasDomainName());
+    try expectEqualStrings("", (try parse("example://3.example.com")).domainName());
+    try expectEqualStrings("", (try parse("example://xn-.com")).domainName());
+    try expectEqualStrings("", (try parse("example://xn--.com")).domainName());
 
-    try expectEqual(true, (try parse("http://%57%2Eexample%2Ecom")).hasDomainName());
-    try expectEqual(false, (try parse("http://%2Eexample%2Ecom")).hasDomainName());
-    try expectEqual(false, (try parse("http://ww%2D.example.com")).hasDomainName());
-    try expectEqual(false, (try parse("http://w%3aw.example.com")).hasDomainName());
-    try expectEqual(false, (try parse("http://www.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com")).hasDomainName());
-    try expectEqual(false, (try parse("http://www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.example.com")).hasDomainName());
+    // label exceeds 63 characters
+    try expectEqualStrings("", (try parse("http://www.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com")).domainName());
+    // domain exceeds 253 characters
+    try expectEqualStrings("", (try parse("http://ww.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.example.com")).domainName());
+    try expectEqualStrings("", (try parse("http://ww.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.example.com.")).domainName());
+    // 254 characters permitted with leading dot
+    try expectEqualStrings("w.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.example.com.", (try parse("http://w.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.example.com.")).domainName());
 }
 
-/// IDN allows for characters beyond the DNS range. The return is in UTF-8, with
-/// an empty string (null-terminated) for non-domain-name host components.
-/// Caller owns the returned memory.
+/// IDN provides characters beyond the DNS range. The function maps to UTF-8,
+/// including null terminator, with the empty string for absence or non-DNS host
+/// components. Caller owns the returned memory.
 pub fn internationalDomainName(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8 {
-    if (!ur.hasDomainName()) return m.dupeZ(u8, "");
-    const raw = ur.rawHost();
+    const raw = ur.domainName();
+    if (raw.len == 0) return m.dupeZ(u8, "");
 
     // Collect as Unicode codepoints in a heap buffer first.
     // Punycode produces at most one codepoint per input octet.
-    var buf: [253]u21 = undefined;
+    var buf: [254]u21 = undefined;
     var bufn: usize = 0;
 
     var offset: usize = 0;
-    while (offset < raw.len) {
-        // write separator
-        if (offset != 0) {
-            buf[bufn] = '.';
-            bufn += 1;
-        }
-
+    while (true) {
         // read label
-        const end = if (indexOfScalar(u8, raw[offset..], '.')) |i| offset + i else raw.len;
+        var end = raw.len;
+        if (indexOfScalar(u8, raw[offset..], '.')) |i|
+            end = i;
         const raw_label = raw[offset..end];
-        offset = end + 1;
 
         // try as punycode
         const codepoint_count = readPunycodeLabel(buf[bufn..], raw_label);
         if (codepoint_count != 0) {
             // got an IDN label
             bufn += codepoint_count;
-            continue;
-        }
-
-        // copy non-punycode
-        var i: usize = 0;
-        while (i < raw_label.len) : (bufn += 1) {
-            const c = raw_label[i];
-            i += 1;
-            if (c != '%') {
+        } else {
+            // copy non-IDN label as is
+            for (raw_label) |c| {
                 buf[bufn] = c;
-            } else {
-                // already validated as alphanum/hypen
-                buf[bufn] = (hex_table[raw_label[i]] << 4) | hex_table[raw_label[i + 1]];
-                i += 2;
+                bufn += 1;
             }
         }
+
+        if (end >= raw.len) break;
+        buf[bufn] = '.';
+        bufn += 1;
+        offset = end + 1;
+        if (offset >= raw.len) break;
     }
 
     var utf8_size: usize = 0;
@@ -357,7 +336,7 @@ test "IDN" {
 
     try expectEqualStrings("🔥👯♀✨", try (try parse("example://xn--e5h45at481i1ua")).internationalDomainName(fix.allocator()));
 
-    // “Sample strings” A through R from RFC 3492, subsection 7.1
+    // “Sample strings” from RFC 3492, subsection 7.1
     try expectEqualStrings("ليهمابتكلموشعربي؟", try (try parse("example://xn--egbpdaj6bu4bxfgehfvwxn")).internationalDomainName(fix.allocator()));
     try expectEqualStrings("他们为什么不说中文", try (try parse("example://xn--ihqwcrb4cv8a8dqg056pqjye")).internationalDomainName(fix.allocator()));
     try expectEqualStrings("他們爲什麽不說中文", try (try parse("example://xn--ihqwctvzc91f659drss3x8bo0yb")).internationalDomainName(fix.allocator()));
@@ -365,7 +344,8 @@ test "IDN" {
     try expectEqualStrings("למההםפשוטלאמדבריםעברית", try (try parse("example://xn--4dbcagdahymbxekheh6e0a7fei0b")).internationalDomainName(fix.allocator()));
     try expectEqualStrings("यहलोगहिन्दीक्योंनहींबोलसकतेहैं", try (try parse("example://xn--i1baa7eci9glrd9b2ae1bj0hfcgg6iyaf8o0a1dig0cd")).internationalDomainName(fix.allocator()));
     try expectEqualStrings("なぜみんな日本語を話してくれないのか", try (try parse("example://xn--n8jok5ay5dzabd5bym9f0cm5685rrjetr6pdxa")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("세계의모든사람들이한국어를이해한다면얼마나좋을까", try (try parse("example://xn--989aomsvi5e83db1d2a355cv1e0vak1dwrv93d5xbh15a0dt30a5jpsd879ccm6fea98c")).internationalDomainName(fix.allocator()));
+    // H exceeds size-limit of node
+    try expectEqualStrings("", try (try parse("example://xn--989aomsvi5e83db1d2a355cv1e0vak1dwrv93d5xbh15a0dt30a5jpsd879ccm6fea98c")).internationalDomainName(fix.allocator()));
     try expectEqualStrings("почемужеонинеговорятпорусски", try (try parse("example://xn--b1abfaaepdrnnbgefbaDotcwatmq2g4l")).internationalDomainName(fix.allocator()));
     try expectEqualStrings("PorquénopuedensimplementehablarenEspañol", try (try parse("example://xn--PorqunopuedensimplementehablarenEspaol-fmd56a")).internationalDomainName(fix.allocator()));
     try expectEqualStrings("TạisaohọkhôngthểchỉnóitiếngViệt", try (try parse("example://xn--TisaohkhngthchnitingVit-kjcr8268qyxafd2f1b9g")).internationalDomainName(fix.allocator()));
@@ -378,9 +358,8 @@ test "IDN" {
     try expectEqualStrings("そのスピードで", try (try parse("example://xn--d9juau41awczczp")).internationalDomainName(fix.allocator()));
 }
 
-/// ReadPunycode parses raw_in until the first dot character (".") or EOF.
-/// Readn is set to the number of octets read from raw_in and the return has
-/// the codepoint ouput count to buf. Raw input may contain percent encodings.
+/// ReadPunycode parses raw in full, and it returns the number of codepoints
+/// set in buf, with zero for invalid punycode encounters.
 fn readPunycodeLabel(buf: []u21, raw: []const u8) usize {
     var bufn: usize = 0; // read count in octets (to return)
 
@@ -389,18 +368,17 @@ fn readPunycodeLabel(buf: []u21, raw: []const u8) usize {
     // — RFC 3490, section 5.
     const ace_prefix = "xn--";
 
-    // TODO(pascaldekloe): match percent encodings too
     if (raw.len < 4 or raw[0] != 'x' and raw[0] != 'X' or raw[1] != 'n' and raw[1] != 'N' or raw[2] != '-' or raw[3] != '-')
         return 0;
     var rawi: usize = ace_prefix.len;
 
-    const segregation_end = lastIndexOfScalar(u8, raw, '-').?;
-    if (segregation_end > ace_prefix.len) {
-        for (ace_prefix.len..segregation_end) |i| {
+    const segregation_split = lastIndexOfScalar(u8, raw, '-').?;
+    if (segregation_split > ace_prefix.len) {
+        for (ace_prefix.len..segregation_split) |i| {
             buf[bufn] = raw[i];
             bufn += 1;
         }
-        rawi = segregation_end + 1;
+        rawi = segregation_split + 1;
     }
 
     const base = 36; // case-insensitive alphanumeric
