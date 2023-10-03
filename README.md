@@ -4,8 +4,6 @@
 
 … a library for strict URI handling, written in the Zig programming language.
 
-No stable release yet. 🚧 I'm still learning the language.
-
 This is free and unencumbered software released into the
 [public domain](https://creativecommons.org/publicdomain/zero/1.0).
 
@@ -15,11 +13,11 @@ This is free and unencumbered software released into the
 ## Library
 
 Header file `zuri.h` describes libzuri in full. See `demo.c` for a quick start.
+Install or unstall `libzuri.a` with header and CMake configuration as follows.
 
-    make libzuri.a
-    sudo make install PREFIX=/usr/local
+    make install PREFIX=~/local
 
-Such installation can be undone with `sudo make uninstall PREFIX=/usr/local`.
+    make uninstall PREFIX=~/local
 
 
 ## Zig Interface
@@ -41,26 +39,56 @@ always equals the concatenation of the `rawScheme`, `rawAuthority`, `rawPath`,
 `rawQuery` and `rawFragment` readings.
 
 ```zig
-/// The raw fragment component starts with "#" when present.
+fn rawScheme(ur: Urview) []const u8
+fn rawAuthority(ur: Urview) []const u8
+fn hasAuthority(ur: Urview) bool
+fn rawUserinfo(ur: Urview) []const u8
+fn hasUserinfo(ur: Urview) bool
+fn rawHost(ur: Urview) []const u8
+fn hasHost(ur: Urview) bool
+fn hasIp6Address(ur: Urview) bool
+fn rawIp6Zone(ur: Urview) []const u8
+fn rawPort(ur: Urview) []const u8
+fn hasPort(ur: Urview) bool
+fn rawPath(ur: Urview) []const u8
+fn hasPath(ur: Urview) bool
+fn rawQuery(ur: Urview) []const u8
+fn hasQuery(ur: Urview) bool
 fn rawFragment(ur: Urview) []const u8
-
-/// Fragment returns the component with any and all percent-encodings resolved.
-/// None of the applicable standards put any constraints on the byte content.
-/// The return may or may not be a valid UTF-8 string. Caller owns the returned
-/// memory.
-fn fragment(ur: Urview, m: Allocator) error{OutOfMemory}![]u8
-
-/// ContainsFragment returns whether the component with any and all percent-
-/// encodings resolved equals match. Absent components don't equal any match.
-fn containsFragment(ur: Urview, match: []const u8) bool
+fn hasFragment(ur: Urview) bool
 ```
 
-Run `make Urview-doc` to see the full interface documentation at `Urview-doc/index.html`.
+Each URI component has dedicated methods for parsing and comparison, including
+support for international domain names (IDN/punycode), IPv6 addresses and path
+normalization.
+
+
+```zig
+fn scheme(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8
+fn equalsScheme(ur: Urview, comptime match: []const u8) bool
+fn userinfo(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8
+fn equalsUserinfo(ur: Urview, match: []const u8) bool
+fn host(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8
+fn equalsHost(ur: Urview, match: []const u8) bool
+fn domainName(ur: Urview) []const u8
+fn internationalDomainName(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8
+fn ip6Address(ur: Urview) ?[16]u8
+fn ip6Zone(ur: Urview, m: Allocator) error{OutOfMemory}![]const u8
+fn equalsIp6Zone(ur: Urview, match: []const u8) bool
+fn portAsU16(ur: Urview) ?u16
+fn path(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8
+fn equalsPath(ur: Urview, match: []const u8) bool
+fn pathNorm(ur: *const Urview, comptime encodedSlashOut: []const u8, m: Allocator) error{OutOfMemory}![:0]u8
+fn query(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8
+fn equalsQuery(ur: Urview, match: []const u8) bool
+fn fragment(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8
+fn equalsFragment(ur: Urview, match: []const u8) bool
+```
 
 
 ### Urlink.zig
 
-Run `make Urlink-doc` to see the full interface documentation at `Urlink-doc/index.html`.
+`Urlink` contains components for URL construction.
 
 ```zig
 /// NewUrl returns a valid URL/URI. Caller owns the memory.
@@ -73,12 +101,15 @@ fn newUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{Ou
 fn newWebUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![]u8
 ```
 
-Urlink contains components for URL construction.
-
 
 ### Urname.zig
 
-Run `make Urname-doc` to see the full interface documentation at `Urname-doc/index.html`.
+`Urname` contains components for opaque URI construction.
+
+```zig
+/// NewUri returns a valid URI. Caller owns the memory.
+fn newUri(ur: *const Urname, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![]u8
+```
 
 ```zig
 /// NewUrn returns either a valid URN/URI or the empty string when specifics is
@@ -88,42 +119,23 @@ Run `make Urname-doc` to see the full interface documentation at `Urname-doc/ind
 /// otherwise get included as is, namely "A"–"Z", "a"–"z", "0"–"9", "(", ")",
 /// "+", ",", "-", ".", ":", "=", "@", ";", "$", "_", "!", "*", and "'".
 fn newUrn(comptime namespace: []const u8, specifics: []const u8, comptime escape_set: []const u8, m: Allocator) error{OutOfMemory}![]u8
-
-/// NewUri returns a valid URI. Caller owns the memory.
-fn newUri(ur: *const Urname, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![]u8
-```
-
-Urname contains components for opaque URI construction.
-
-```zig
-separator: u8 = ':',
-
-/// The opaque path consists of segments separated by a separator. Any separator
-/// occurences in the segements escape with percent-encoding.
-segments: []const []const u8 = &[0][]u8{},
-
-/// Parameters append to the query component in order of appearance, in the form
-/// of: key ?( "=" value ) *( "&" key ?( "=" value ))
-params: []const Param = &.{},
-
-fragment: ?[]const u8 = null,
 ```
 
 
 ## Benchmark
 
-The following results were measured on an Apple M1. Run `make bench.out` to see
-on your machine.
+The following results were measured on an Apple M1. Run `make bench` to see for
+your machine.
 
 ```
 benchmark newUrl does http://www.w3.org/1999/02/22-rdf-syntax-ns.
-URL construction took 23.1 ns on average
+URL construction took 23.6 ns on average
 benchmark newIp6Url does http://[6874:7470:3a2f:2f77:7777:2e77:332e:6f72]/1999/02/22-rdf-syntax-ns.
-IPv6 URL construction took 30.3 ns on average
+IPv6 URL construction took 30.9 ns on average
 benchmark newUrn does urn:bench:99%2F02%2F22-rdf-syntax-ns%23Description.
-URN construction took 21.8 ns on average
+URN construction took 22.5 ns on average
 benchmark parse does http://www.w3.org/1999/02/22-rdf-syntax-ns#Description.
-parse took 23.8 ns on average
+parse took 24.2 ns on average
 ```
 
 
