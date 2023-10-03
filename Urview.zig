@@ -327,35 +327,37 @@ pub fn internationalDomainName(ur: Urview, m: Allocator) error{OutOfMemory}![:0]
 test "IDN" {
     var buf: [2048]u8 = undefined;
     var fix = std.heap.FixedBufferAllocator.init(&buf);
-    try expectEqualStrings("台灣", try (try parse("http://xn--kpry57d")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("台灣", try (try parse("http://XN--KPRY57D")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("台灣", try (try parse("http://xN--kPrY57d")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("台灣", try (try parse("http://Xn--KpRy57D")).internationalDomainName(fix.allocator()));
+    var m = fix.allocator();
+    try expectEqualStrings("台灣", try (try parse("http://xn--kpry57d")).internationalDomainName(m));
+    try expectEqualStrings("台灣", try (try parse("http://XN--KPRY57D")).internationalDomainName(m));
+    try expectEqualStrings("台灣", try (try parse("http://xN--kPrY57d")).internationalDomainName(m));
+    try expectEqualStrings("台灣", try (try parse("http://Xn--KpRy57D")).internationalDomainName(m));
 
-    try expectEqualStrings("müller.ch", try (try parse("http://xn--mller-kva.ch")).internationalDomainName(fix.allocator()));
-
-    try expectEqualStrings("🔥👯♀✨", try (try parse("example://xn--e5h45at481i1ua")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("müller.ch", try (try parse("http://xn--mller-kva.ch")).internationalDomainName(m));
+    // 254 characters permitted with leading dot
+    try expectEqualStrings("w.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.example.com.", try (try parse("http://w.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.example.com.")).internationalDomainName(m));
+    try expectEqualStrings("w.mÝllerie.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.example.com.", try (try parse("http://w.xn--mllerie-kva.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.www.example.com.")).internationalDomainName(m));
 
     // “Sample strings” from RFC 3492, subsection 7.1
-    try expectEqualStrings("ليهمابتكلموشعربي؟", try (try parse("example://xn--egbpdaj6bu4bxfgehfvwxn")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("他们为什么不说中文", try (try parse("example://xn--ihqwcrb4cv8a8dqg056pqjye")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("他們爲什麽不說中文", try (try parse("example://xn--ihqwctvzc91f659drss3x8bo0yb")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("Pročprostěnemluvíčesky", try (try parse("example://xn--Proprostnemluvesky-uyb24dma41a")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("למההםפשוטלאמדבריםעברית", try (try parse("example://xn--4dbcagdahymbxekheh6e0a7fei0b")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("यहलोगहिन्दीक्योंनहींबोलसकतेहैं", try (try parse("example://xn--i1baa7eci9glrd9b2ae1bj0hfcgg6iyaf8o0a1dig0cd")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("なぜみんな日本語を話してくれないのか", try (try parse("example://xn--n8jok5ay5dzabd5bym9f0cm5685rrjetr6pdxa")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("ليهمابتكلموشعربي؟", try (try parse("example://xn--egbpdaj6bu4bxfgehfvwxn")).internationalDomainName(m));
+    try expectEqualStrings("他们为什么不说中文", try (try parse("example://xn--ihqwcrb4cv8a8dqg056pqjye")).internationalDomainName(m));
+    try expectEqualStrings("他們爲什麽不說中文", try (try parse("example://xn--ihqwctvzc91f659drss3x8bo0yb")).internationalDomainName(m));
+    try expectEqualStrings("Pročprostěnemluvíčesky", try (try parse("example://xn--Proprostnemluvesky-uyb24dma41a")).internationalDomainName(m));
+    try expectEqualStrings("למההםפשוטלאמדבריםעברית", try (try parse("example://xn--4dbcagdahymbxekheh6e0a7fei0b")).internationalDomainName(m));
+    try expectEqualStrings("यहलोगहिन्दीक्योंनहींबोलसकतेहैं", try (try parse("example://xn--i1baa7eci9glrd9b2ae1bj0hfcgg6iyaf8o0a1dig0cd")).internationalDomainName(m));
+    try expectEqualStrings("なぜみんな日本語を話してくれないのか", try (try parse("example://xn--n8jok5ay5dzabd5bym9f0cm5685rrjetr6pdxa")).internationalDomainName(m));
     // H exceeds size-limit of node
-    try expectEqualStrings("", try (try parse("example://xn--989aomsvi5e83db1d2a355cv1e0vak1dwrv93d5xbh15a0dt30a5jpsd879ccm6fea98c")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("почемужеонинеговорятпорусски", try (try parse("example://xn--b1abfaaepdrnnbgefbaDotcwatmq2g4l")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("PorquénopuedensimplementehablarenEspañol", try (try parse("example://xn--PorqunopuedensimplementehablarenEspaol-fmd56a")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("TạisaohọkhôngthểchỉnóitiếngViệt", try (try parse("example://xn--TisaohkhngthchnitingVit-kjcr8268qyxafd2f1b9g")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("3年B組金八先生", try (try parse("example://xn--3B-ww4c5e180e575a65lsy2b")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("安室奈美恵-with-SUPER-MONKEYS", try (try parse("example://xn---with-SUPER-MONKEYS-pc58ag80a8qai00g7n9n")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("Hello-Another-Way-それぞれの場所", try (try parse("example://xn--Hello-Another-Way--fc4qua05auwb3674vfr0b")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("ひとつ屋根の下2", try (try parse("example://xn--2-u9tlzr9756bt3uc0v")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("MajiでKoiする5秒前", try (try parse("example://xn--MajiKoi5-783gue6qz075azm5e")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("パフィーdeルンバ", try (try parse("example://xn--de-jg4avhby1noc0d")).internationalDomainName(fix.allocator()));
-    try expectEqualStrings("そのスピードで", try (try parse("example://xn--d9juau41awczczp")).internationalDomainName(fix.allocator()));
+    try expectEqualStrings("", try (try parse("example://xn--989aomsvi5e83db1d2a355cv1e0vak1dwrv93d5xbh15a0dt30a5jpsd879ccm6fea98c")).internationalDomainName(m));
+    try expectEqualStrings("почемужеонинеговорятпорусски", try (try parse("example://xn--b1abfaaepdrnnbgefbaDotcwatmq2g4l")).internationalDomainName(m));
+    try expectEqualStrings("PorquénopuedensimplementehablarenEspañol", try (try parse("example://xn--PorqunopuedensimplementehablarenEspaol-fmd56a")).internationalDomainName(m));
+    try expectEqualStrings("TạisaohọkhôngthểchỉnóitiếngViệt", try (try parse("example://xn--TisaohkhngthchnitingVit-kjcr8268qyxafd2f1b9g")).internationalDomainName(m));
+    try expectEqualStrings("3年B組金八先生", try (try parse("example://xn--3B-ww4c5e180e575a65lsy2b")).internationalDomainName(m));
+    try expectEqualStrings("安室奈美恵-with-SUPER-MONKEYS", try (try parse("example://xn---with-SUPER-MONKEYS-pc58ag80a8qai00g7n9n")).internationalDomainName(m));
+    try expectEqualStrings("Hello-Another-Way-それぞれの場所", try (try parse("example://xn--Hello-Another-Way--fc4qua05auwb3674vfr0b")).internationalDomainName(m));
+    try expectEqualStrings("ひとつ屋根の下2", try (try parse("example://xn--2-u9tlzr9756bt3uc0v")).internationalDomainName(m));
+    try expectEqualStrings("MajiでKoiする5秒前", try (try parse("example://xn--MajiKoi5-783gue6qz075azm5e")).internationalDomainName(m));
+    try expectEqualStrings("パフィーdeルンバ", try (try parse("example://xn--de-jg4avhby1noc0d")).internationalDomainName(m));
+    try expectEqualStrings("そのスピードで", try (try parse("example://xn--d9juau41awczczp")).internationalDomainName(m));
 }
 
 /// ReadPunycode parses raw in full, and it returns the number of codepoints
@@ -474,6 +476,102 @@ fn buildBase36Table() [256]u6 {
     return table;
 }
 
+/// Ip6Address parses the host component if hasIp6Address(3).
+pub fn ip6Address(ur: Urview) ?[16]u8 {
+    if (!ur.hasIp6Address()) return null;
+    const raw = ur.rawHost();
+    var i: usize = 1; // pass '['
+
+    var addr: [16]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    var offset: usize = 0;
+    var zero_start: usize = undefined; // pairs omitted with "::"
+    var in_ip4 = false;
+
+    read_pairs: while (true) {
+        const lead_char = raw[i];
+        i += 1;
+        var pair: usize = hex_table[lead_char];
+        if (pair > 15) {
+            if (lead_char == ':') {
+                zero_start = offset;
+                continue :read_pairs;
+            }
+            assert(lead_char == '%' or lead_char == ']');
+            break :read_pairs;
+        }
+
+        while (true) {
+            const c = raw[i];
+            i += 1;
+            const nibble = hex_table[c];
+            if (nibble < 16) {
+                pair = (pair << 4) | @as(usize, nibble);
+                continue;
+            }
+
+            switch (c) {
+                ':' => {
+                    addr[offset] = @intCast(pair >> 8);
+                    addr[offset + 1] = @intCast(pair & 255);
+                    offset += 2;
+                    continue :read_pairs;
+                },
+                '.' => {
+                    in_ip4 = true;
+                    // pair read as hex was actually decimal
+                    const hecta = ((pair >> 8) & 15) * 100;
+                    const deca = ((pair >> 4) & 15) * 10;
+                    addr[offset] = @intCast(hecta + deca + (pair & 15));
+                    offset += 1;
+                    continue :read_pairs;
+                },
+                ']', '%' => {
+                    if (in_ip4) {
+                        // pair read as hex was actually decimal
+                        const hecta = ((pair >> 8) & 15) * 100;
+                        const deca = ((pair >> 4) & 15) * 10;
+                        addr[offset] = @intCast(hecta + deca + (pair & 15));
+                        offset += 1;
+                    } else {
+                        addr[offset] = @intCast(pair >> 8);
+                        addr[offset + 1] = @intCast(pair & 255);
+                        offset += 2;
+                    }
+                    break :read_pairs;
+                },
+                else => unreachable,
+            }
+        }
+    }
+
+    if (offset < addr.len) {
+        var zero_end = addr.len;
+        if (zero_start < offset) {
+            const tail = addr[zero_start..offset];
+            zero_end -= tail.len;
+            copyBackwards(u8, addr[zero_end..], tail);
+        } else {
+            assert(zero_start == offset);
+        }
+
+        for (zero_start..zero_end) |wi| addr[wi] = 0;
+    }
+
+    return addr;
+}
+
+test "IPv6 Addressing" {
+    // Examples from “IPv6 Addressing Architecture” RFC 3513, subsection 2.2
+    try expectEqual(@as(?[16]u8, .{ 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10 }), (try parse("example://[FEDC:BA98:7654:3210:FEDC:BA98:7654:3210]")).ip6Address());
+    try expectEqual(@as(?[16]u8, .{ 0x10, 0x80, 0, 0, 0, 0, 0, 0, 0, 8, 0x08, 0x00, 0x20, 0x0c, 0x41, 0x7a }), (try parse("example://[1080:0:0:0:8:800:200C:417A]")).ip6Address());
+    try expectEqual(@as(?[16]u8, .{ 0x10, 0x80, 0, 0, 0, 0, 0, 0, 0, 8, 0x08, 0x00, 0x20, 0x0c, 0x41, 0x7a }), (try parse("example://[1080::8:800:200C:417A]")).ip6Address());
+    try expectEqual(@as(?[16]u8, .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }), (try parse("example://[::1]")).ip6Address());
+    try expectEqual(@as(?[16]u8, .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 13, 1, 68, 3 }), (try parse("example://[0:0:0:0:0:0:13.1.68.3]")).ip6Address());
+    // full ommision not allowed in URI syntax; all-zero prefix is deprecated anyway
+    try expectEqual(@as(?[16]u8, .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 13, 1, 68, 3 }), (try parse("example://[0::13.1.68.3]")).ip6Address());
+    try expectEqual(@as(?[16]u8, .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 13, 1, 68, 3 }), (try parse("example://[::ffff:13.1.68.3]")).ip6Address());
+}
+
 /// Ip6Zone returns the IPv6 zone idententifier from the host component with any
 /// and all percent-encodings resolved. None of the applicable standandards put
 /// any constraints on the byte content. The return may or may not be a valid
@@ -495,8 +593,9 @@ pub fn equalsIp6Zone(ur: Urview, match: []const u8) bool {
 test "IPv6 Zone Identifier" {
     var buf: [32]u8 = undefined;
     var fix = std.heap.FixedBufferAllocator.init(&buf);
-    try expectEqualStrings("en1", try (try parse("http://[fe80::a%25en1]")).ip6Zone(fix.allocator()));
-    try expectEqualStrings("🏯", try (try parse("http://[::1%25%F0%9F%8F%AF]")).ip6Zone(fix.allocator()));
+    var m = fix.allocator();
+    try expectEqualStrings("en1", try (try parse("http://[fe80::a%25en1]")).ip6Zone(m));
+    try expectEqualStrings("🏯", try (try parse("http://[::1%25%F0%9F%8F%AF]")).ip6Zone(m));
     try expect((try parse("http://[fe80::a%25en1]")).equalsIp6Zone("en1"));
     try expect((try parse("http://[::1%25%F0%9F%8F%AF]")).equalsIp6Zone("🏯"));
 }
@@ -506,7 +605,7 @@ test "IPv6 Zone Identifier" {
 /// zeroes bring the total number of decimals beyond five positions.
 pub fn portAsU16(ur: Urview) ?u16 {
     // decimal value table (prevents multiplication)
-    const decis: [10]u16 = .{ 0, 10, 20, 30, 40, 50, 60, 70, 80, 90 };
+    const decas: [10]u16 = .{ 0, 10, 20, 30, 40, 50, 60, 70, 80, 90 };
     const hectas: [10]u16 = .{ 0, 100, 200, 300, 400, 500, 600, 700, 800, 900 };
     const kilos: [10]u16 = .{ 0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000 };
     const leads: [7]u16 = .{ 0, 10000, 20000, 30000, 40000, 50000, 60000 };
@@ -516,11 +615,11 @@ pub fn portAsU16(ur: Urview) ?u16 {
     // parse values ":0"–":65535" exclusively; "" and ":" underflow usize
     return switch (end -% offset -% 2) {
         0 => @as(u16, ur.uri_ptr[end - 1] - '0'),
-        1 => @as(u16, ur.uri_ptr[end - 1] - '0') + decis[ur.uri_ptr[end - 2] - '0'],
-        2 => @as(u16, ur.uri_ptr[end - 1] - '0') + decis[ur.uri_ptr[end - 2] - '0'] + hectas[ur.uri_ptr[end - 3] - '0'],
-        3 => @as(u16, ur.uri_ptr[end - 1] - '0') + decis[ur.uri_ptr[end - 2] - '0'] + hectas[ur.uri_ptr[end - 3] - '0'] + kilos[ur.uri_ptr[end - 4] - '0'],
+        1 => @as(u16, ur.uri_ptr[end - 1] - '0') + decas[ur.uri_ptr[end - 2] - '0'],
+        2 => @as(u16, ur.uri_ptr[end - 1] - '0') + decas[ur.uri_ptr[end - 2] - '0'] + hectas[ur.uri_ptr[end - 3] - '0'],
+        3 => @as(u16, ur.uri_ptr[end - 1] - '0') + decas[ur.uri_ptr[end - 2] - '0'] + hectas[ur.uri_ptr[end - 3] - '0'] + kilos[ur.uri_ptr[end - 4] - '0'],
         4 => max_digits: {
-            const port = @as(u16, ur.uri_ptr[end - 1] - '0') + decis[ur.uri_ptr[end - 2] - '0'] + hectas[ur.uri_ptr[end - 3] - '0'] + kilos[ur.uri_ptr[end - 4] - '0'];
+            const port = @as(u16, ur.uri_ptr[end - 1] - '0') + decas[ur.uri_ptr[end - 2] - '0'] + hectas[ur.uri_ptr[end - 3] - '0'] + kilos[ur.uri_ptr[end - 4] - '0'];
             const msd = @as(u16, ur.uri_ptr[end - 5] - '0');
             if (msd > 6 or (msd == 6 and port > 5535)) break :max_digits null;
             break :max_digits leads[msd] + port;
@@ -1251,12 +1350,13 @@ test "Absent" {
 
     var buf: [5]u8 = undefined;
     var fix = std.heap.FixedBufferAllocator.init(&buf);
-    try expectEqualStrings("", try ur.userinfo(fix.allocator()));
-    try expectEqualStrings("", try ur.host(fix.allocator()));
+    var m = fix.allocator();
+    try expectEqualStrings("", try ur.userinfo(m));
+    try expectEqualStrings("", try ur.host(m));
     try expectEqual(@as(?u16, null), ur.portAsU16());
-    try expectEqualStrings("", try ur.path(fix.allocator()));
-    try expectEqualStrings("", try ur.query(fix.allocator()));
-    try expectEqualStrings("", try ur.fragment(fix.allocator()));
+    try expectEqualStrings("", try ur.path(m));
+    try expectEqualStrings("", try ur.query(m));
+    try expectEqualStrings("", try ur.fragment(m));
 }
 
 test "Empty" {
@@ -1287,11 +1387,12 @@ test "Empty" {
 
     var buf: [5]u8 = undefined;
     var fix = std.heap.FixedBufferAllocator.init(&buf);
-    try expectEqualStrings("", try ur.userinfo(fix.allocator()));
-    try expectEqualStrings("", try ur.host(fix.allocator()));
-    try expectEqualStrings("", try ur.path(fix.allocator()));
-    try expectEqualStrings("", try ur.query(fix.allocator()));
-    try expectEqualStrings("", try ur.fragment(fix.allocator()));
+    var m = fix.allocator();
+    try expectEqualStrings("", try ur.userinfo(m));
+    try expectEqualStrings("", try ur.host(m));
+    try expectEqualStrings("", try ur.path(m));
+    try expectEqualStrings("", try ur.query(m));
+    try expectEqualStrings("", try ur.fragment(m));
 }
 
 // Parse all components after raw_scheme, which can be none.

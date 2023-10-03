@@ -24,6 +24,7 @@ pub fn main() !void {
     try verifyConstraints(ur, readb[0..readn]);
     if (!fuzzFail) try verifyEscapeMatch(ur);
     mem.doNotOptimizeAway(ur.internationalDomainName(allocator));
+    mem.doNotOptimizeAway(ur.ip6Address());
     mem.doNotOptimizeAway(ur.portAsU16());
 
     allocator.free(try ur.pathNorm("", allocator));
