@@ -1535,7 +1535,7 @@ fn asIpLiteral(ur: *Urview, offset: usize) ParseError!void {
             hexn = 0;
         },
         ']' => {
-            if (!zeroes_once and h16n != 8 or zeroes_once and h16n > 7)
+            if (hexn > 4 or !zeroes_once and h16n != 8 or zeroes_once and h16n > 7)
                 return ParseError.AddressViolation;
             return ipLiteralEnd(ur, i);
         },
