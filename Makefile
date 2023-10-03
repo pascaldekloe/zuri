@@ -61,11 +61,11 @@ clean:
 
 .PHONY: install
 install: zig-out/lib/libzuri.a zuri-config.cmake
-	install -o 0 -g 0 -m 755 -d $(PREFIX)/include
-	install -o 0 -g 0 -m 644 zuri.h $(PREFIX)/include
-	install -o 0 -g 0 -m 755 -d $(PREFIX)/lib/cmake/zuri
-	install -o 0 -g 0 -m 644 zig-out/lib/libzuri.a $(PREFIX)/lib
-	install -o 0 -g 0 -m 644 zuri-config.cmake $(PREFIX)/lib/cmake/zuri
+	install -m 755 -d $(PREFIX)/include
+	install -m 644 zuri.h $(PREFIX)/include
+	install -m 755 -d $(PREFIX)/lib/cmake/zuri
+	install -m 644 zig-out/lib/libzuri.a $(PREFIX)/lib
+	install -m 644 zuri-config.cmake $(PREFIX)/lib/cmake/zuri
 
 .PHONY: uninstall
 uninstall:
