@@ -87,4 +87,23 @@ pub fn build(b: *std.Build) void {
         .optimize = std.builtin.OptimizeMode.ReleaseFast,
     });
     b.installArtifact(zuri);
+    // cross-compile for packaging
+    b.installArtifact(b.addStaticLibrary(.{
+        .name = "linux-amd64",
+        .root_source_file = .{ .path = "zuri.zig" },
+        .target = std.zig.CrossTarget.parse(.{
+            .arch_os_abi = "x86_64-linux",
+            .cpu_features = "baseline",
+        }) catch @panic("x86_64-linux baseline"),
+        .optimize = std.builtin.OptimizeMode.ReleaseFast,
+    }));
+    b.installArtifact(b.addStaticLibrary(.{
+        .name = "linux-arm64",
+        .root_source_file = .{ .path = "zuri.zig" },
+        .target = std.zig.CrossTarget.parse(.{
+            .arch_os_abi = "aarch64-linux",
+            .cpu_features = "baseline",
+        }) catch @panic("aarch64-linux baseline"),
+        .optimize = std.builtin.OptimizeMode.ReleaseFast,
+    }));
 }

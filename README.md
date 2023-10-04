@@ -19,6 +19,8 @@ Install or unstall `libzuri.a` with header and CMake configuration as follows.
 
     make uninstall PREFIX=~/local
 
+Linux packages as `make dist/linux-amd64.deb` or `make dist/linux-arm64.deb`.
+
 
 ## Zig Interface
 

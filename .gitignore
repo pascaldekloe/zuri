@@ -1,7 +1,10 @@
 zig-cache/
+zig-out/
 
 build.asm
 
 fuzz-url-out/
 fuzz-urn-out/
 fuzz-urview-out/
+
+dist/

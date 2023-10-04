@@ -58,6 +58,7 @@ clean:
 	rm -fr Urlink-doc Urname-doc Urview-doc
 	rm -f bench.asm
 	rm -f demo
+	rm -fr dist/
 
 .PHONY: install
 install: zig-out/lib/libzuri.a zuri-config.cmake
@@ -73,6 +74,42 @@ uninstall:
 	rm -fi $(PREFIX)/lib/libzuri.a
 	rm -fir $(PREFIX)/lib/cmake/zuri
 
+dist/linux-amd64.deb: zig-out/lib/liblinux-amd64.a
+	# header
+	install -m 755 -d dist/linux-amd64/usr/local/include
+	install -m 644 zuri.h dist/linux-amd64/usr/local/include
+	# static library
+	install -m 755 -d dist/linux-amd64/usr/local/lib
+	install -m 644 $? dist/linux-amd64/usr/local/lib
+	# CMake configuration
+	install -m 755 -d dist/linux-amd64/usr/local/lib/cmake/zuri
+	install -m 644 package/zuri-config.cmake dist/linux-amd64/usr/local/lib/cmake/zuri
+	# Debian package definition
+	install -m 755 -d dist/linux-amd64/DEBIAN
+	install -m 644 package/control dist/linux-amd64/DEBIAN
+	echo "Architecture: amd64" >> dist/linux-amd64/DEBIAN/control
+	echo "Source: zuri (`git describe --always`)" >> dist/linux-amd64/DEBIAN/control
+	# build
+	dpkg-deb --root-owner-group --build dist/linux-amd64
+
+dist/linux-arm64.deb: zig-out/lib/liblinux-arm64.a
+	# header
+	install -m 755 -d dist/linux-arm64/usr/local/include
+	install -m 644 zuri.h dist/linux-arm64/usr/local/include
+	# static library
+	install -m 755 -d dist/linux-arm64/usr/local/lib
+	install -m 644 $? dist/linux-arm64/usr/local/lib
+	# CMake configuration
+	install -m 755 -d dist/linux-arm64/usr/local/lib/cmake/zuri
+	install -m 644 package/zuri-config.cmake dist/linux-arm64/usr/local/lib/cmake/zuri
+	# Debian package definition
+	install -m 755 -d dist/linux-arm64/DEBIAN
+	install -m 644 package/control dist/linux-arm64/DEBIAN
+	echo "Architecture: arm64" >> dist/linux-arm64/DEBIAN/control
+	echo "Source: zuri (`git describe --always`)" >> dist/linux-arm64/DEBIAN/control
+	# build
+	dpkg-deb --root-owner-group --build dist/linux-arm64
+
 
 zig-out/bin/bench: *.zig
 	zig build
@@ -87,4 +124,10 @@ zig-out/bin/fuzz-url: *.zig
 	zig build
 
 zig-out/bin/fuzz-urn: *.zig
+	zig build
+
+zig-out/lib/liblinux-amd64.a: *.zig
+	zig build
+
+zig-out/lib/liblinux-arm64.a: *.zig
 	zig build

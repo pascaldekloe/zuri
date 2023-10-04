@@ -1,0 +1,7 @@
+Package: zuri
+Version: 0.1
+Description: rich URI handling
+Section: devel
+Maintainer: Pascal S. de Kloe <pascal@quies.net>
+Homepage: https://github.com/pascaldekloe/zuri
+Bugs: https://github.com/pascaldekloe/zuri/issues
