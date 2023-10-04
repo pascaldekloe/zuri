@@ -1558,7 +1558,7 @@ fn asIpLiteral(ur: *Urview, offset: usize) ParseError!void {
 
         // percent character ("%"), encoded as "%25", marks a zone identifier
         '%' => {
-            if (ur.uri_ptr[i + 1] != '2' or ur.uri_ptr[i + 2] != '5' or !zeroes_once and h16n != 8 or zeroes_once and h16n > 7)
+            if (hexn > 4 or ur.uri_ptr[i + 1] != '2' or ur.uri_ptr[i + 2] != '5' or !zeroes_once and h16n != 8 or zeroes_once and h16n > 7)
                 return ParseError.AddressViolation;
             i += 3;
             var zone_start = i;
