@@ -13,13 +13,21 @@ This is free and unencumbered software released into the
 ## Library
 
 Header file `zuri.h` describes libzuri in full. See `demo.c` for a quick start.
-Install or unstall `libzuri.a` with header and CMake configuration as follows.
+
+	make demo
+	./demo
+
+Install or unstall `libzuri.a` with header and CMake configuration from Makefile
+directly as follows.
 
     make install PREFIX=~/local
+	make uninstall PREFIX=~/local
 
-    make uninstall PREFIX=~/local
+The `package` directory offers a few more installation options, including a
+Homebrew formula.
 
-Linux packages as `make dist/linux-amd64.deb` or `make dist/linux-arm64.deb`.
+	make dist/linux-amd64.deb
+	make dist/linux-arm64.deb
 
 
 ## Zig Interface
