@@ -61,7 +61,7 @@ clean:
 	rm -fr dist/
 
 .PHONY: install
-install:
+install: zig-out/lib/libzuri.a
 	install -m 755 -d $(PREFIX)/include
 	install -m 644 zuri.h $(PREFIX)/include
 	install -m 755 -d $(PREFIX)/lib/cmake/zuri
