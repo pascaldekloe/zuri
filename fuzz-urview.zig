@@ -26,6 +26,9 @@ pub fn main() !void {
     mem.doNotOptimizeAway(ur.internationalDomainName(allocator));
     mem.doNotOptimizeAway(ur.ip6Address());
     mem.doNotOptimizeAway(ur.portAsU16());
+    var read_buf: [8]u8 = undefined;
+    mem.doNotOptimizeAway(ur.readParam(&read_buf, "x"));
+    mem.doNotOptimizeAway(ur.readWebParam(&read_buf, "yz"));
 
     allocator.free(try ur.pathNorm("", allocator));
     allocator.free(try ur.pathNorm("👯", allocator));

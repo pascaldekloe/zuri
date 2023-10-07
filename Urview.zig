@@ -1060,6 +1060,102 @@ pub fn equalsQuery(ur: Urview, match: []const u8) bool {
     return equalsString(ur.uri_ptr[offset..end], match);
 }
 
+/// ReadParam reads the first matching value with any and all percent-encodings
+/// resolved into buf for as far as the capacity allows. The return is the
+/// actual value size, which may exceed buffer in size. None of the applicable
+/// standards put any constraints on the byte content. The data read may or may
+/// not be a valid UTF-8 string.
+///
+/// Key matching is based on the following pattern. An empty key never matches.
+///
+///     key ?( "=" value ) *( "&" key ?( "=" value ))
+///
+pub fn readParam(ur: Urview, buf: []u8, key: []const u8) usize {
+    return readParamAsWeb(ur, buf, key, false);
+}
+
+/// ReadWebParam is like readParam, but on the application/x-www-form-urlencoded
+/// convention, which uses the plus character ("+") as a space (" ") escape.
+pub fn readWebParam(ur: Urview, buf: []u8, key: []const u8) usize {
+    return readParamAsWeb(ur, buf, key, true);
+}
+
+pub fn readParamAsWeb(ur: Urview, buf: []u8, key: []const u8, comptime asWeb: bool) usize {
+    const raw = ur.rawQuery();
+    var i: usize = 1; // skip "?"
+
+    // count per octets matching key (in sequence)
+    var match_n: usize = 0;
+    match_key: while (i < raw.len) {
+        // read next character
+        var c = raw[i];
+        i += 1;
+
+        if (c == '=') {
+            if (match_n == key.len) { // 🔑 match
+                var n: usize = 0;
+                while (i < raw.len and raw[i] != '&') : (n += 1) {
+                    c = raw[i];
+                    i += 1;
+                    if (c == '%') {
+                        c = (hex_table[raw[i]] << 4) | hex_table[raw[i + 1]];
+                        i += 2;
+                    } else if (asWeb and c == '+')
+                        c = ' ';
+                    if (n < buf.len) buf[n] = c;
+                }
+                return n;
+            }
+        } else {
+            if (c == '%') {
+                c = (hex_table[raw[i]] << 4) | hex_table[raw[i + 1]];
+                i += 2;
+            } else if (asWeb and c == '+')
+                c = ' ';
+            if (match_n < key.len and c == key[match_n]) {
+                match_n += 1;
+                continue :match_key; // happy flow
+            }
+        }
+
+        // keys differ
+        match_n = 0;
+
+        // jump to next param
+        while (i < raw.len and raw[i] != '&') i += 1;
+        i += 1;
+    }
+
+    return 0; // not found
+}
+
+test "Query Parameters" {
+    var buf: [16]u8 = undefined;
+    try expectEqualStrings("bar", buf[0..(try parse("example:?foo=bar")).readParam(&buf, "foo")]);
+    try expectEqualStrings("bar", buf[0..(try parse("example:?a=1&foo=bar&b=2")).readParam(&buf, "foo")]);
+    try expectEqualStrings("bar", buf[0..(try parse("example:?aaa&foo=bar&bbb")).readParam(&buf, "foo")]);
+    try expectEqualStrings("1st", buf[0..(try parse("example:?foo=1st&foo=2nd")).readParam(&buf, "foo")]);
+    try expectEqualStrings("2nd", buf[0..(try parse("example:?fo=1st&foo=2nd")).readParam(&buf, "foo")]);
+    try expectEqualStrings("2nd", buf[0..(try parse("example:?fooo=1st&foo=2nd")).readParam(&buf, "foo")]);
+
+    try expectEqualStrings("", buf[0..(try parse("example:?foo=bar")).readParam(&buf, "")]);
+    try expectEqualStrings("", buf[0..(try parse("example:?foo=bar")).readParam(&buf, "fo")]);
+    try expectEqualStrings("", buf[0..(try parse("example:?foo=bar")).readParam(&buf, "oo")]);
+    try expectEqualStrings("", buf[0..(try parse("example:?foo=bar")).readParam(&buf, "fooo")]);
+    try expectEqualStrings("", buf[0..(try parse("example:?foo=bar")).readParam(&buf, "FOO")]);
+    try expectEqualStrings("", buf[0..(try parse("example:?foo")).readParam(&buf, "foo")]);
+    try expectEqualStrings("", buf[0..(try parse("example:?foo=")).readParam(&buf, "foo")]);
+    try expectEqualStrings("", buf[0..(try parse("example:?foo=bar")).readParam(&buf, "bar")]);
+    try expectEqualStrings("", buf[0..(try parse("example:?foo=bar&a=b")).readParam(&buf, "bar")]);
+    try expectEqualStrings("", buf[0..(try parse("example:?foo=bar=baz")).readParam(&buf, "bar")]);
+    try expectEqualStrings("bar=baz", buf[0..(try parse("example:?foo=bar=baz")).readParam(&buf, "foo")]);
+
+    try expectEqualStrings("bar+", buf[0..(try parse("example:?f%6Fo=b%61r+")).readParam(&buf, "foo")]);
+    try expectEqualStrings("bar ", buf[0..(try parse("example:?%66o%6F=%62ar+")).readWebParam(&buf, "foo")]);
+    try expectEqualStrings("", buf[0..(try parse("example:?+=tss")).readParam(&buf, " ")]);
+    try expectEqualStrings("tss", buf[0..(try parse("example:?+=tss")).readWebParam(&buf, " ")]);
+}
+
 /// Fragment returns the component with any and all percent-encodings resolved.
 /// None of the applicable standards put any constraints on the byte content.
 /// The return may or may not be a valid UTF-8 string. Caller owns the returned
@@ -1885,8 +1981,8 @@ fn buildHexTable() [256]u8 {
     return table;
 }
 
-// EqualsString returns whether the raw input with any and all of its
-// percent-encodings resolved equals match.
+// EqualsString returns whether the raw input with any and all percent-encodings
+// resolved equals match.
 fn equalsString(raw: []const u8, match: []const u8) bool {
     var i: usize = 0;
     for (match) |c| {
