@@ -91,6 +91,8 @@ fn equalsPath(ur: Urview, match: []const u8) bool
 fn pathNorm(ur: *const Urview, comptime encodedSlashOut: []const u8, m: Allocator) error{OutOfMemory}![:0]u8
 fn query(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8
 fn equalsQuery(ur: Urview, match: []const u8) bool
+fn readParam(ur: Urview, buf: []u8, key: []const u8) usize
+fn readWebParam(ur: Urview, buf: []u8, key: []const u8) usize
 fn fragment(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8
 fn equalsFragment(ur: Urview, match: []const u8) bool
 ```
@@ -102,12 +104,13 @@ fn equalsFragment(ur: Urview, match: []const u8) bool
 
 ```zig
 /// NewUrl returns a valid URL/URI. Caller owns the memory.
+/// ⚠️ Note that most web applications need newWebUrl instead.
 fn newUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![]u8
 
-/// NewWebUrl is like newUrl, yet it encodes query parameters conform the
-/// application/x-www-form-urlencoded convention, i.e., space characters (" ")
-/// are written as plus characters ("+") rather than percent encoding "%20". Use
-/// is intended for the "http", "https", "ws" and "wss" schemes.
+/// NewWebUrl is like newUrl, but it honors the x-www-form-urlencoded convention
+/// for query parameters, which encodes the space character (" ") each as a plus
+/// character ("+") instead of percent encoding "%20". Use is intended for the
+/// "http", "https", "ws" and "wss" schemes only.
 fn newWebUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![]u8
 ```
 

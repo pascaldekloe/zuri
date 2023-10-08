@@ -1070,17 +1070,20 @@ pub fn equalsQuery(ur: Urview, match: []const u8) bool {
 ///
 ///     key ?( "=" value ) *( "&" key ?( "=" value ))
 ///
+/// ⚠️ Note that most web applications need readWebParam instead.
 pub fn readParam(ur: Urview, buf: []u8, key: []const u8) usize {
     return readParamAsWeb(ur, buf, key, false);
 }
 
-/// ReadWebParam is like readParam, but on the application/x-www-form-urlencoded
-/// convention, which uses the plus character ("+") as a space (" ") escape.
+/// ReadWebParam is like readParam, but it honors the x-www-form-urlencoded
+/// convention for query parameters, which encodes the space character (" ")
+/// each as a plus character ("+") instead of percent encoding "%20". Use is
+/// intended for the "http", "https", "ws" and "wss" schemes only.
 pub fn readWebParam(ur: Urview, buf: []u8, key: []const u8) usize {
     return readParamAsWeb(ur, buf, key, true);
 }
 
-pub fn readParamAsWeb(ur: Urview, buf: []u8, key: []const u8, comptime asWeb: bool) usize {
+fn readParamAsWeb(ur: Urview, buf: []u8, key: []const u8, comptime asWeb: bool) usize {
     const raw = ur.rawQuery();
     var i: usize = 1; // skip "?"
 

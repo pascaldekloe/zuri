@@ -38,14 +38,15 @@ params: []const Param = &.{},
 fragment: ?[]const u8 = null,
 
 /// NewUrl returns a valid URL/URI. Caller owns the memory.
+/// ⚠️ Note that most web applications need newWebUrl instead.
 pub fn newUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![:0]u8 {
     return newUrlAsWeb(ur, scheme, false, m);
 }
 
-/// NewWebUrl is like newUrl, yet it encodes query parameters conform the
-/// application/x-www-form-urlencoded convention, i.e., space characters (" ")
-/// are written as plus characters ("+") rather than percent encoding "%20". Use
-/// is intended for the "http", "https", "ws" and "wss" schemes.
+/// NewWebUrl is like newUrl, but it honors the x-www-form-urlencoded convention
+/// for query parameters, which encodes the space character (" ") each as a plus
+/// character ("+") instead of percent encoding "%20". Use is intended for the
+/// "http", "https", "ws" and "wss" schemes only.
 pub fn newWebUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![:0]u8 {
     return newUrlAsWeb(ur, scheme, true, m);
 }
