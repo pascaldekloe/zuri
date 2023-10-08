@@ -16,4 +16,4 @@ jobs:
         uses: korandoru/setup-zig@v1
         with:
           zig-version: "master"
-      - run: zig build test
+      - run: zig build -j1 test
