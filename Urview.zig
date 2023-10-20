@@ -19,6 +19,7 @@ const test_allocator = std.testing.allocator;
 const expect = std.testing.expect;
 const expectFmt = std.testing.expectFmt;
 const expectEqual = std.testing.expectEqual;
+const expectEqualDeep = std.testing.expectEqualDeep;
 const expectEqualStrings = std.testing.expectEqualStrings;
 const expectStringEndsWith = std.testing.expectStringEndsWith;
 const expectStringStartsWith = std.testing.expectStringStartsWith;
@@ -1077,7 +1078,7 @@ pub fn readParam(ur: Urview, buf: []u8, key: []const u8) usize {
 
 /// ReadWebParam is like readParam, but it honors the x-www-form-urlencoded
 /// convention for query parameters, which encodes the space character (" ")
-/// each as a plus character ("+") instead of percent encoding "%20". Use is
+/// each as a plus character ("+") instead of percent-encoding "%20". Use is
 /// intended for the "http", "https", "ws" and "wss" schemes only.
 pub fn readWebParam(ur: Urview, buf: []u8, key: []const u8) usize {
     return readParamAsWeb(ur, buf, key, true);
@@ -1132,7 +1133,7 @@ fn readParamAsWeb(ur: Urview, buf: []u8, key: []const u8, comptime asWeb: bool) 
     return 0; // not found
 }
 
-test "Query Parameters" {
+test "Query Parameter Read" {
     var buf: [16]u8 = undefined;
     try expectEqualStrings("bar", buf[0..(try parse("example:?foo=bar")).readParam(&buf, "foo")]);
     try expectEqualStrings("bar", buf[0..(try parse("example:?a=1&foo=bar&b=2")).readParam(&buf, "foo")]);
@@ -1157,6 +1158,88 @@ test "Query Parameters" {
     try expectEqualStrings("bar ", buf[0..(try parse("example:?%66o%6F=%62ar+")).readWebParam(&buf, "foo")]);
     try expectEqualStrings("", buf[0..(try parse("example:?+=tss")).readParam(&buf, " ")]);
     try expectEqualStrings("tss", buf[0..(try parse("example:?+=tss")).readWebParam(&buf, " ")]);
+}
+
+/// Param represents a common format for the query component.
+///
+///     key ?( "=" value ) *( "&" key ?( "=" value ))
+//
+/// There are no constraints on the byte content. Key and value may or may not
+/// be a valid UTF-8 string.
+pub const Param = struct {
+    // Key can be either a value label, or a tag on its own.
+    key: []const u8,
+
+    /// Null means absence of the equals character ("=").
+    value: ?[]const u8 = null,
+};
+
+/// Params returns the query parsed with any and all percent-encodings resolved.
+/// The return for an absent or empty query is zero. Otherwise, caller owns the
+/// returned memory. Use readParam where reasonable for better efficiency.
+/// ⚠️ Note that most web applications need webParams instead.
+pub fn params(ur: Urview, m: Allocator) error{OutOfMemory}![]Param {
+    return paramsAsWeb(ur, false, m);
+}
+
+/// WebParams is like params, but it honors the x-www-form-urlencoded convention
+/// for query parameters, which encodes the space character (" ") each as a plus
+/// character ("+") instead of percent-encoding "%20". Use is intended for the
+/// "http", "https", "ws" and "wss" schemes.
+pub fn webParams(ur: Urview, m: Allocator) error{OutOfMemory}![]Param {
+    return paramsAsWeb(ur, true, m);
+}
+
+pub fn paramsAsWeb(ur: Urview, comptime asWeb: bool, m: Allocator) error{OutOfMemory}![]Param {
+    const raw = ur.rawQuery();
+    if (raw.len < 2) return &[0]Param{};
+
+    // count and allocate parameters
+    var n: usize = 1;
+    for (raw[1..]) |c| if (c == '&') {
+        n += 1;
+    };
+    const p = try m.alloc(Param, n);
+
+    // backwards reads "?" terminated
+    var i = raw.len - 1;
+    var end = raw.len;
+    var key_end = raw.len;
+    while (true) : (i -= 1) {
+        switch (raw[i]) {
+            // first "=" starts value
+            '=' => key_end = i,
+            '&', '?' => {
+                n -= 1;
+                if (key_end < end) {
+                    p[n].value = try resolvePercentEncodingsWithToLowerAndAsWeb(raw[key_end + 1 .. end], false, asWeb, m);
+                } else {
+                    p[n].value = null;
+                    key_end = end;
+                }
+                p[n].key = try resolvePercentEncodingsWithToLowerAndAsWeb(raw[i + 1 .. key_end], false, asWeb, m);
+
+                if (raw[i] == '?') return p;
+
+                end = i;
+            },
+            else => {},
+        }
+    }
+    unreachable;
+}
+
+test "Query Parameter Parse" {
+    // allocate without free to make failing tests readable
+    var buf: [2048]u8 = undefined;
+    var fix = std.heap.FixedBufferAllocator.init(&buf);
+    var m = fix.allocator();
+
+    try expectEqualDeep(try m.dupe(Param, &[_]Param{.{ .key = "foo", .value = "bar" }}), try (try parse("example:?foo=bar")).params(m));
+    try expectEqualDeep(try m.dupe(Param, &[_]Param{.{ .key = "foo", .value = "" }}), try (try parse("example:?foo=")).params(m));
+    try expectEqualDeep(try m.dupe(Param, &[_]Param{.{ .key = "foo", .value = null }}), try (try parse("example:?foo")).params(m));
+
+    try expectEqualDeep(try m.dupe(Param, &[_]Param{ .{ .key = "", .value = null }, .{ .key = "&=", .value = "=&" }, .{ .key = "", .value = "" } }), try (try parse("example:?&%26%3D=%3d%26&=")).params(m));
 }
 
 /// Fragment returns the component with any and all percent-encodings resolved.
@@ -1914,14 +1997,14 @@ fn fragmentContinue(ur: *Urview, offset: usize) ParseError!void {
 }
 
 fn resolvePercentEncodings(raw: []const u8, m: Allocator) error{OutOfMemory}![:0]u8 {
-    return resolvePercentEncodingsWithToLower(raw, false, m);
+    return resolvePercentEncodingsWithToLowerAndAsWeb(raw, false, false, m);
 }
 
 fn resolvePercentEncodingsToLower(raw: []const u8, m: Allocator) error{OutOfMemory}![:0]u8 {
-    return resolvePercentEncodingsWithToLower(raw, true, m);
+    return resolvePercentEncodingsWithToLowerAndAsWeb(raw, true, false, m);
 }
 
-fn resolvePercentEncodingsWithToLower(raw: []const u8, comptime toLower: bool, m: Allocator) error{OutOfMemory}![:0]u8 {
+fn resolvePercentEncodingsWithToLowerAndAsWeb(raw: []const u8, comptime toLower: bool, comptime asWeb: bool, m: Allocator) error{OutOfMemory}![:0]u8 {
     var i: usize = 0; // raw index
     var n: usize = 0; // output count [octets]
     while (raw.len - i > 2) : (n += 1)
@@ -1940,6 +2023,8 @@ fn resolvePercentEncodingsWithToLower(raw: []const u8, comptime toLower: bool, m
         if (c == '%') {
             c = (hex_table[raw[i + 1]] << 4) | hex_table[raw[i + 2]];
             i += 2;
+        } else if (asWeb and c == '+') {
+            c = ' ';
         }
         if (toLower and c <= 'Z' and c >= 'A') c += 'a' - 'A';
         p[0] = c;

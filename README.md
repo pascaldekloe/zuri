@@ -93,6 +93,8 @@ fn query(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8
 fn equalsQuery(ur: Urview, match: []const u8) bool
 fn readParam(ur: Urview, buf: []u8, key: []const u8) usize
 fn readWebParam(ur: Urview, buf: []u8, key: []const u8) usize
+fn params(ur: Urview, m: Allocator) error{OutOfMemory}![]Param
+fn webParams(ur: Urview, m: Allocator) error{OutOfMemory}![]Param
 fn fragment(ur: Urview, m: Allocator) error{OutOfMemory}![:0]u8
 fn equalsFragment(ur: Urview, match: []const u8) bool
 ```
