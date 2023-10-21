@@ -1190,7 +1190,7 @@ pub fn webParams(ur: Urview, m: Allocator) error{OutOfMemory}![]Param {
     return paramsAsWeb(ur, true, m);
 }
 
-pub fn paramsAsWeb(ur: Urview, comptime asWeb: bool, m: Allocator) error{OutOfMemory}![]Param {
+fn paramsAsWeb(ur: Urview, comptime asWeb: bool, m: Allocator) error{OutOfMemory}![]Param {
     const raw = ur.rawQuery();
     if (raw.len < 2) return &[0]Param{};
 

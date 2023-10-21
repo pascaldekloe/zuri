@@ -105,15 +105,12 @@ fn equalsFragment(ur: Urview, match: []const u8) bool
 `Urlink` contains components for URL construction.
 
 ```zig
-/// NewUrl returns a valid URL/URI. Caller owns the memory.
-/// ⚠️ Note that most web applications need newWebUrl instead.
+/// NewUrl returns a valid URL/URI. Caller owns the returned memory.
 fn newUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![]u8
 
-/// NewWebUrl is like newUrl, but it honors the x-www-form-urlencoded convention
-/// for query parameters, which encodes the space character (" ") each as a plus
-/// character ("+") instead of percent encoding "%20". Use is intended for the
-/// "http", "https", "ws" and "wss" schemes only.
-fn newWebUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![]u8
+/// NewIp6Url is like newUrl, yet it formats addr as an IPv6 address instead of
+/// using the host field.
+fn newIp6Url(ur: *const Urlink, comptime scheme: []const u8, addr: [16]u8, m: Allocator) error{OutOfMemory}![:0]u8
 ```
 
 

@@ -31,27 +31,13 @@ segments: []const []const u8 = &[0][]u8{},
 
 query: ?[]const u8 = null,
 
-/// Parameters append to the query component in order of appearance, in the form
-/// of: key ?( "=" value ) *( "&" key ?( "=" value ))
+/// Parameters append to the query component in order of appearance.
 params: []const Param = &.{},
 
 fragment: ?[]const u8 = null,
 
-/// NewUrl returns a valid URL/URI. Caller owns the memory.
-/// ⚠️ Note that most web applications need newWebUrl instead.
+/// NewUrl returns a valid URL/URI. Caller owns the returned memory.
 pub fn newUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![:0]u8 {
-    return newUrlAsWeb(ur, scheme, false, m);
-}
-
-/// NewWebUrl is like newUrl, but it honors the x-www-form-urlencoded convention
-/// for query parameters, which encodes the space character (" ") each as a plus
-/// character ("+") instead of percent encoding "%20". Use is intended for the
-/// "http", "https", "ws" and "wss" schemes only.
-pub fn newWebUrl(ur: *const Urlink, comptime scheme: []const u8, m: Allocator) error{OutOfMemory}![:0]u8 {
-    return newUrlAsWeb(ur, scheme, true, m);
-}
-
-fn newUrlAsWeb(ur: *const Urlink, comptime scheme: []const u8, comptime asWeb: bool, m: Allocator) error{OutOfMemory}![:0]u8 {
     schemeCheck(scheme); // compile-time validation
 
     // buffer decimal port number
@@ -76,8 +62,10 @@ fn newUrlAsWeb(ur: *const Urlink, comptime scheme: []const u8, comptime asWeb: b
     if (ur.userinfo) |u| size += userinfoSize(u);
     for (ur.host) |c| size += reg_name_char_sizes[c];
     size += ur.pathSize();
-    size += ur.querySize(asWeb);
-    size += ur.fragmentSize();
+    if (ur.query) |s| size += queryOrFragmentSize(s);
+    size += ur.params.len; // "?" or "&"
+    for (ur.params) |param| size += param.size();
+    if (ur.fragment) |s| size += queryOrFragmentSize(s);
 
     // output + write pointer
     var b = try m.allocSentinel(u8, size, 0);
@@ -102,8 +90,13 @@ fn newUrlAsWeb(ur: *const Urlink, comptime scheme: []const u8, comptime asWeb: b
         p += s.len;
     }
     ur.writePath(&p);
-    ur.writeQuery(&p, asWeb);
-    ur.writeFragment(&p);
+    if (ur.query) |s| writeQueryOrFragment(&p, '?', s);
+    for (ur.params, 0..) |param, i| {
+        p[0] = if (i == 0 and ur.query == null) '?' else '&';
+        p += 1;
+        param.write(&p);
+    }
+    if (ur.fragment) |s| writeQueryOrFragment(&p, '#', s);
     return b;
 }
 
@@ -130,23 +123,11 @@ test "URL Construction" {
 
     try expectEqualStrings("http://?%20&%20=%20#%20", try (&Urlink{ .params = &.{ .{ .key = " " }, .{ .key = " ", .value = " " } }, .fragment = " " }).newUrl("http", allocator));
     try expectEqualStrings("http://?+=+&+#+", try (&Urlink{ .params = &.{ .{ .key = "+", .value = "+" }, .{ .key = "+" } }, .fragment = "+" }).newUrl("http", allocator));
-
-    // '+' = ' ' 🤡
-    try expectEqualStrings("http://?+&+=+#%20", try (&Urlink{ .params = &.{ .{ .key = " " }, .{ .key = " ", .value = " " } }, .fragment = " " }).newWebUrl("http", allocator));
-    try expectEqualStrings("http://?%2B=%2B&%2B#+", try (&Urlink{ .params = &.{ .{ .key = "+", .value = "+" }, .{ .key = "+" } }, .fragment = "+" }).newWebUrl("http", allocator));
 }
 
-/// NewIp6Url is like newUrl, yet it uses the IPv6 address instead of the host string.
+/// NewIp6Url is like newUrl, yet it formats addr as an IPv6 address instead of
+/// using the host field.
 pub fn newIp6Url(ur: *const Urlink, comptime scheme: []const u8, addr: [16]u8, m: Allocator) error{OutOfMemory}![:0]u8 {
-    return newIp6UrlAsWeb(ur, scheme, false, addr, m);
-}
-
-/// NewIp6WebUrl is like newWebUrl, yet it uses the IPv6 address instead of the host string.
-pub fn newIp6WebUrl(ur: *const Urlink, comptime scheme: []const u8, addr: [16]u8, m: Allocator) error{OutOfMemory}![:0]u8 {
-    return newIp6UrlAsWeb(ur, scheme, true, addr, m);
-}
-
-fn newIp6UrlAsWeb(ur: *const Urlink, comptime scheme: []const u8, comptime asWeb: bool, addr: [16]u8, m: Allocator) error{OutOfMemory}![:0]u8 {
     schemeCheck(scheme); // compile-time validation
 
     const host_port_max = "[0000:0000:0000:0000:0000:0000:0000:0000]:65535".len;
@@ -158,8 +139,10 @@ fn newIp6UrlAsWeb(ur: *const Urlink, comptime scheme: []const u8, comptime asWeb
     if (ur.userinfo) |u| size += userinfoSize(u);
     size += host_port.len;
     size += ur.pathSize();
-    size += ur.querySize(asWeb);
-    size += ur.fragmentSize();
+    if (ur.query) |s| size += queryOrFragmentSize(s);
+    size += ur.params.len; // "?" or "&"
+    for (ur.params) |param| size += param.size();
+    if (ur.fragment) |s| size += queryOrFragmentSize(s);
 
     // output + write pointer
     var b = try m.allocSentinel(u8, size, 0);
@@ -172,8 +155,13 @@ fn newIp6UrlAsWeb(ur: *const Urlink, comptime scheme: []const u8, comptime asWeb
     @memcpy(p, host_port);
     p += host_port.len;
     ur.writePath(&p);
-    ur.writeQuery(&p, asWeb);
-    ur.writeFragment(&p);
+    if (ur.query) |s| writeQueryOrFragment(&p, '?', s);
+    for (ur.params, 0..) |param, i| {
+        p[0] = if (i == 0) '?' else '&';
+        p += 1;
+        param.write(&p);
+    }
+    if (ur.fragment) |s| writeQueryOrFragment(&p, '#', s);
     return b;
 }
 
@@ -422,70 +410,37 @@ inline fn writePath(ur: *const Urlink, p: *[*]u8) void {
     }
 }
 
-inline fn querySize(ur: *const Urlink, comptime asWeb: bool) usize {
-    var size: usize = 0;
-    if (ur.query) |s| {
-        size += 1; // "?"
-        for (s) |c| size += query_char_sizes[c];
-    }
-
-    size += ur.params.len; // "?" or "&";
-    for (ur.params) |param| size += if (asWeb) param.sizeAsWeb() else param.size();
-
+fn queryOrFragmentSize(s: []const u8) usize {
+    var size: usize = 1; // "?" or "#"
+    for (s) |c| size += query_or_fragment_char_sizes[c];
     return size;
 }
 
-inline fn writeQuery(ur: *const Urlink, p: *[*]u8, comptime asWeb: bool) void {
-    if (ur.query) |s| {
-        p.*[0] = '?';
-        p.* += 1;
-        for (s) |c| {
-            if (query_char_sizes[c] & 2 == 0) {
-                p.*[0] = c;
-                p.* += 1;
-            } else percentEncode(p, c);
-        }
-    }
-
-    for (ur.params, 0..) |param, i| {
-        p.*[0] = if (i == 0 and ur.query == null) '?' else '&';
-        p.* += 1;
-        if (asWeb) param.writeAsWeb(p) else param.write(p);
+fn writeQueryOrFragment(p: *[*]u8, comptime header: u8, s: []const u8) void {
+    p.*[0] = header;
+    p.* += 1;
+    for (s) |c| {
+        if (query_or_fragment_char_sizes[c] & 2 == 0) {
+            p.*[0] = c;
+            p.* += 1;
+        } else percentEncode(p, c);
     }
 }
 
-inline fn fragmentSize(ur: *const Urlink) usize {
-    var size: usize = 0;
-    if (ur.fragment) |s| {
-        size += 1; // "#"
-        for (s) |c| size += fragment_char_sizes[c];
-    }
-    return size;
-}
-
-inline fn writeFragment(ur: *const Urlink, p: *[*]u8) void {
-    if (ur.fragment) |s| {
-        p.*[0] = '#';
-        p.* += 1;
-        for (s) |c| {
-            if (fragment_char_sizes[c] & 2 == 0) {
-                p.*[0] = c;
-                p.* += 1;
-            } else percentEncode(p, c);
-        }
-    }
-}
-
-/// Param embodies a common format for the query component.
-/// Use newWebUrl for the whitespace (" ") as plus ("+") convention.
+/// Param represents a common format for the query component.
+///
+///     key ?( "=" value ) *( "&" key ?( "=" value ))
+///
+/// There are no constraints on the byte content. Key and value may or may not
+/// be a valid UTF-8 string.
 pub const Param = struct {
-    // Key can be either a value label, or a tag.
+    // Key can be either a value label, or a tag on its own.
     key: []const u8,
 
     /// The equal character ("=") is omitted for null values.
     value: ?[]const u8 = null,
 
-    inline fn size(param: Param) usize {
+    fn size(param: Param) usize {
         var n: usize = 0;
         for (param.key) |c| n += param_char_sizes[c];
         if (param.value) |s| {
@@ -495,17 +450,7 @@ pub const Param = struct {
         return n;
     }
 
-    inline fn sizeAsWeb(param: Param) usize {
-        var n: usize = 0;
-        for (param.key) |c| n += web_param_char_sizes[c];
-        if (param.value) |s| {
-            n += 1; // "="
-            for (s) |c| n += web_param_char_sizes[c];
-        }
-        return n;
-    }
-
-    inline fn write(param: Param, p: *[*]u8) void {
+    fn write(param: Param, p: *[*]u8) void {
         writeParamValue(p, param.key);
         if (param.value) |s| {
             p.*[0] = '=';
@@ -513,32 +458,11 @@ pub const Param = struct {
             writeParamValue(p, s);
         }
     }
-
-    inline fn writeAsWeb(param: Param, p: *[*]u8) void {
-        writeWebParamValue(p, param.key);
-        if (param.value) |s| {
-            p.*[0] = '=';
-            p.* += 1;
-            writeWebParamValue(p, s);
-        }
-    }
 };
 
 inline fn writeParamValue(p: *[*]u8, s: []const u8) void {
     for (s) |c| {
         if (param_char_sizes[c] & 2 == 0) {
-            p.*[0] = c;
-            p.* += 1;
-        } else percentEncode(p, c);
-    }
-}
-
-inline fn writeWebParamValue(p: *[*]u8, s: []const u8) void {
-    for (s) |c| {
-        if (c == ' ') {
-            p.*[0] = '+';
-            p.* += 1;
-        } else if (web_param_char_sizes[c] & 2 == 0) {
             p.*[0] = c;
             p.* += 1;
         } else percentEncode(p, c);
@@ -611,17 +535,21 @@ fn buildSegmentCharSizes() [256]u2 {
     return sizes;
 }
 
-const query_char_sizes: [256]u2 = buildQueryCharSizes();
+const query_or_fragment_char_sizes: [256]u2 = buildQueryOrFragmentCharSizes();
 
-fn buildQueryCharSizes() [256]u2 {
+fn buildQueryOrFragmentCharSizes() [256]u2 {
     var sizes: [256]u2 = undefined;
+    // match query from RFC 3986, subsection 3.4
+    // match fragment from RFC 3986, subsection 3.5
     for (0..256) |c| sizes[c] = switch (c) {
         // unreserved
         'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
         // sub-delims
         '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
-        // query
-        ':', '@', '/', '?' => 1,
+        // pchar
+        ':', '@' => 1,
+        // query ∪ fragment
+        '/', '?' => 1,
         else => 3,
     };
     return sizes;
@@ -630,19 +558,15 @@ fn buildQueryCharSizes() [256]u2 {
 const param_char_sizes: [256]u2 = buildParamCharSizes();
 
 fn buildParamCharSizes() [256]u2 {
-    var sizes = buildQueryCharSizes();
-    sizes['='] = 3;
-    sizes['&'] = 3;
+    var sizes: [256]u2 = undefined;
+    for (0..256) |c| sizes[c] = switch (c) {
+        // unreserved
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
+        // sub-delims − "=" − "+"
+        '!', '$', '\'', '(', ')', '*', '+', ',', ';' => 1,
+        // query
+        ':', '@', '/', '?' => 1,
+        else => 3,
+    };
     return sizes;
 }
-
-const web_param_char_sizes: [256]u2 = buildWebParamCharSizes();
-
-fn buildWebParamCharSizes() [256]u2 {
-    var sizes = buildParamCharSizes();
-    sizes[' '] = 1; // ' ' encoded as '+'
-    sizes['+'] = 3; // '+' precent-encoded
-    return sizes;
-}
-
-const fragment_char_sizes: [256]u2 = query_char_sizes;

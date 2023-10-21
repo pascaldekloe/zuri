@@ -16,8 +16,9 @@ separator: u8 = ':',
 /// occurences in the segements escape with percent-encoding.
 segments: []const []const u8 = &[0][]u8{},
 
-/// Parameters append to the query component in order of appearance, in the form
-/// of: key ?( "=" value ) *( "&" key ?( "=" value ))
+query: ?[]const u8 = null,
+
+/// Parameters append to the query component in order of appearance.
 params: []const Param = &.{},
 
 fragment: ?[]const u8 = null,
@@ -30,9 +31,10 @@ pub fn newUri(ur: *const Urname, comptime scheme: []const u8, m: Allocator) erro
     var size = scheme.len + 1;
     if (ur.segments.len != 0) size += ur.segments.len - 1;
     for (ur.segments) |s| size += segmentSize(s, ur.separator);
+    if (ur.query) |s| size += queryOrFragmentSize(s);
     size += ur.params.len; // "?" or "&"
     for (ur.params) |param| size += param.size();
-    if (ur.fragment) |s| size += fragmentSize(s);
+    if (ur.fragment) |s| size += queryOrFragmentSize(s);
 
     // output + write pointer
     var b = try m.allocSentinel(u8, size, 0);
@@ -43,12 +45,13 @@ pub fn newUri(ur: *const Urname, comptime scheme: []const u8, m: Allocator) erro
     }
 
     writeSegments(&p, ur.segments, ur.separator);
+    if (ur.query) |s| writeQueryOrFragment(&p, '?', s);
     for (ur.params, 0..) |param, i| {
-        p[0] = if (i == 0) '?' else '&';
+        p[0] = if (i == 0 and ur.query == null) '?' else '&';
         p += 1;
         param.write(&p);
     }
-    if (ur.fragment) |s| writeFragment(&p, s);
+    if (ur.fragment) |s| writeQueryOrFragment(&p, '#', s);
     return b;
 }
 
@@ -189,7 +192,29 @@ fn writeSegments(p: *[*]u8, segs: []const []const u8, sep: u8) void {
     }
 }
 
-/// Param embodies a common format for the query component.
+fn queryOrFragmentSize(s: []const u8) usize {
+    var size: usize = 1; // "?" or "#"
+    for (s) |c| size += query_or_fragment_char_sizes[c];
+    return size;
+}
+
+fn writeQueryOrFragment(p: *[*]u8, comptime header: u8, s: []const u8) void {
+    p.*[0] = header;
+    p.* += 1;
+    for (s) |c| {
+        if (query_or_fragment_char_sizes[c] & 2 == 0) {
+            p.*[0] = c;
+            p.* += 1;
+        } else percentEncode(p, c);
+    }
+}
+
+/// Param represents a common format for the query component.
+///
+///     key ?( "=" value ) *( "&" key ?( "=" value ))
+///
+/// There are no constraints on the byte content. Key and value may or may not
+/// be a valid UTF-8 string.
 pub const Param = struct {
     // Key can be either a value label, or a tag on its own.
     key: []const u8,
@@ -220,23 +245,6 @@ pub const Param = struct {
 fn writeParamValue(p: *[*]u8, s: []const u8) void {
     for (s) |c| {
         if (param_char_sizes[c] & 2 == 0) {
-            p.*[0] = c;
-            p.* += 1;
-        } else percentEncode(p, c);
-    }
-}
-
-fn fragmentSize(s: []const u8) usize {
-    var size: usize = 1; // "#"
-    for (s) |c| size += fragment_char_sizes[c];
-    return size;
-}
-
-fn writeFragment(p: *[*]u8, s: []const u8) void {
-    p.*[0] = '#';
-    p.* += 1;
-    for (s) |c| {
-        if (fragment_char_sizes[c] & 2 == 0) {
             p.*[0] = c;
             p.* += 1;
         } else percentEncode(p, c);
@@ -302,6 +310,26 @@ fn buildNssCharSizes() [256]u2 {
     return sizes;
 }
 
+const query_or_fragment_char_sizes: [256]u2 = buildQueryOrFragmentCharSizes();
+
+fn buildQueryOrFragmentCharSizes() [256]u2 {
+    var sizes: [256]u2 = undefined;
+    // match query from RFC 3986, subsection 3.4
+    // match fragment from RFC 3986, subsection 3.5
+    for (0..256) |c| sizes[c] = switch (c) {
+        // unreserved
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
+        // sub-delims
+        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
+        // pchar
+        ':', '@' => 1,
+        // query ∪ fragment
+        '/', '?' => 1,
+        else => 3,
+    };
+    return sizes;
+}
+
 const param_char_sizes: [256]u2 = buildParamCharSizes();
 
 fn buildParamCharSizes() [256]u2 {
@@ -313,25 +341,6 @@ fn buildParamCharSizes() [256]u2 {
         '!', '$', '\'', '(', ')', '*', '+', ',', ';' => 1,
         // query
         ':', '@', '/', '?' => 1,
-        else => 3,
-    };
-    return sizes;
-}
-
-const fragment_char_sizes: [256]u2 = buildFragmentCharSizes();
-
-fn buildFragmentCharSizes() [256]u2 {
-    var sizes: [256]u2 = undefined;
-    // match fragment from RFC 3986, subsection 3.5
-    for (0..256) |c| sizes[c] = switch (c) {
-        // unreserved
-        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => 1,
-        // sub-delims
-        '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => 1,
-        // pchar
-        ':', '@' => 1,
-        // query
-        '/', '?' => 1,
         else => 3,
     };
     return sizes;

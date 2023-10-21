@@ -1,8 +1,8 @@
-const std = @import("std");
-const mem = std.mem;
-
 const Urview = @import("./Urview.zig");
 const Urlink = @import("./Urlink.zig");
+
+const std = @import("std");
+const mem = std.mem;
 
 pub fn main() !void {
     // fetch fuzz input
@@ -12,7 +12,7 @@ pub fn main() !void {
     const readn = try stdin.readAll(&readb);
     var in: []const u8 = readb[0..readn];
 
-    var buf: [readb.len * 4]u8 = undefined;
+    var buf: [readb.len * 5]u8 = undefined;
     var fix = std.heap.FixedBufferAllocator.init(&buf);
     const allocator = fix.allocator();
 
@@ -24,6 +24,7 @@ pub fn main() !void {
         in = in[3..];
     }
     in = loadOptional(&ur.userinfo, in);
+    in = loadOptional(&ur.query, in);
     in = loadOptional(&ur.fragment, in);
 
     if (in.len != 0) {
@@ -127,15 +128,33 @@ pub fn main() !void {
         }
     }
 
-    if (view.hasQuery() != (ur.params.len != 0)) {
+    if (view.hasQuery() != (ur.query != null or ur.params.len != 0)) {
         std.log.err("fuzz with parameters {} became {} in URL {s}", .{
-            ur.params.len != 0,
+            ur.query != null or ur.params.len != 0,
             view.hasQuery(),
             url,
         });
         std.os.exit(1);
     }
-    // TODO(pascaldekloe): query parameter parser
+    if (ur.query == null and ur.params.len != 0) {
+        const params = try view.params(allocator);
+        if (params.len != ur.params.len) {
+            std.log.err("fuzz with {d} parameters became {d} parameters in URL {s}", .{
+                ur.params.len,
+                params.len,
+                url,
+            });
+            std.os.exit(1);
+        }
+        for (ur.params, 0..) |want, i| {
+            if (!mem.eql(u8, want.key, params[i].key) or (want.value == null) != (params[i].value == null) or want.value != null and !mem.eql(u8, want.value.?, params[i].value.?)) {
+                std.log.err("fuzz with parameter {d} {s}={any} does not match URL {s}", .{
+                    i + 1, want.key, want.value, url,
+                });
+                std.os.exit(1);
+            }
+        }
+    }
 
     if (view.hasFragment() != (ur.fragment != null)) {
         std.log.err("fuzz with fragment {} became {} in URL {s}", .{

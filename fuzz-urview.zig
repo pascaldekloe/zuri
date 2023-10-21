@@ -1,9 +1,9 @@
+const Urview = @import("./Urview.zig");
+
 const std = @import("std");
 const ascii = std.ascii;
 const os = std.os;
 const mem = std.mem;
-
-const Urview = @import("./Urview.zig");
 
 var buf: [1024]u8 = undefined;
 var fix = std.heap.FixedBufferAllocator.init(&buf);
@@ -23,15 +23,17 @@ pub fn main() !void {
 
     try verifyConstraints(ur, readb[0..readn]);
     if (!fuzzFail) try verifyEscapeMatch(ur);
-    mem.doNotOptimizeAway(ur.internationalDomainName(allocator));
     mem.doNotOptimizeAway(ur.ip6Address());
     mem.doNotOptimizeAway(ur.portAsU16());
     var read_buf: [8]u8 = undefined;
     mem.doNotOptimizeAway(ur.readParam(&read_buf, "x"));
     mem.doNotOptimizeAway(ur.readWebParam(&read_buf, "yz"));
 
+    allocator.free(try ur.internationalDomainName(allocator));
     allocator.free(try ur.pathNorm("", allocator));
     allocator.free(try ur.pathNorm("👯", allocator));
+    allocator.free(try ur.params(allocator)); // won't free Param elements
+    allocator.free(try ur.webParams(allocator));
 }
 
 var fuzzFail = false;
