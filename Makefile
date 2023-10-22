@@ -3,11 +3,11 @@ PREFIX ?= /usr/local
 
 .PHONY: test
 test: demo
-	zig build test
+	zig build -j1 test
 	./demo
 
 demo: demo.c zig-out/lib/libzuri.a zuri.h
-	zig build
+	zig build -j1
 	clang -o $@ -Lzig-out/lib -l zuri demo.c
 
 .PHONY: bench
@@ -112,22 +112,22 @@ dist/linux-arm64.deb: zig-out/lib/liblinux-arm64.a
 
 
 zig-out/bin/bench: *.zig
-	zig build
+	zig build -j1
 
 zig-out/lib/libzuri.a: *.zig
-	zig build
+	zig build -j1
 
 zig-out/bin/fuzz-urview: *.zig
-	zig build
+	zig build -j1
 
 zig-out/bin/fuzz-url: *.zig
-	zig build
+	zig build -j1
 
 zig-out/bin/fuzz-urn: *.zig
-	zig build
+	zig build -j1
 
 zig-out/lib/liblinux-amd64.a: *.zig
-	zig build
+	zig build -j1
 
 zig-out/lib/liblinux-arm64.a: *.zig
-	zig build
+	zig build -j1
