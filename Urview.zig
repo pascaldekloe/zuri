@@ -1168,10 +1168,10 @@ test "Query Parameter Read" {
 /// be a valid UTF-8 string.
 pub const Param = struct {
     // Key can be either a value label, or a tag on its own.
-    key: []const u8,
+    key: [:0]const u8,
 
     /// Null means absence of the equals character ("=").
-    value: ?[]const u8 = null,
+    value: ?[:0]const u8 = null,
 };
 
 /// Params returns the query parsed with any and all percent-encodings resolved.
