@@ -1182,12 +1182,48 @@ pub fn params(ur: Urview, m: Allocator) error{OutOfMemory}![]Param {
     return paramsAsWeb(ur, false, m);
 }
 
+test params {
+    var allocator = std.testing.allocator;
+
+    const ur = try parse("https://www.google.com/search?q=ping+pong");
+    const pairs = try ur.params(allocator);
+    defer { // memory free
+        for (pairs) |pair| {
+            allocator.free(pair.key);
+            if (pair.value) |s| allocator.free(s);
+        }
+        allocator.free(pairs);
+    }
+
+    try expectEqual(@as(usize, 1), pairs.len);
+    try expectEqualStrings("q", pairs[0].key);
+    try expectEqualStrings("ping+pong", pairs[0].value.?);
+}
+
 /// WebParams is like params, but it honors the x-www-form-urlencoded convention
 /// for query parameters, which encodes the space character (" ") each as a plus
 /// character ("+") instead of percent-encoding "%20". Use is intended for the
 /// "http", "https", "ws" and "wss" schemes.
 pub fn webParams(ur: Urview, m: Allocator) error{OutOfMemory}![]Param {
     return paramsAsWeb(ur, true, m);
+}
+
+test webParams {
+    var allocator = std.testing.allocator;
+
+    const ur = try parse("https://www.google.com/search?q=ping+pong");
+    const pairs = try ur.webParams(allocator);
+    defer { // memory free
+        for (pairs) |pair| {
+            allocator.free(pair.key);
+            if (pair.value) |s| allocator.free(s);
+        }
+        allocator.free(pairs);
+    }
+
+    try expectEqual(@as(usize, 1), pairs.len);
+    try expectEqualStrings("q", pairs[0].key);
+    try expectEqualStrings("ping pong", pairs[0].value.?);
 }
 
 fn paramsAsWeb(ur: Urview, comptime asWeb: bool, m: Allocator) error{OutOfMemory}![]Param {
@@ -2012,7 +2048,8 @@ fn resolvePercentEncodingsWithToLowerAndAsWeb(raw: []const u8, comptime toLower:
     n += raw.len - i;
 
     // output
-    if (!toLower and n >= raw.len) return m.dupeZ(u8, raw);
+    if (!asWeb and !toLower and n >= raw.len)
+        return m.dupeZ(u8, raw);
     var b = try m.allocSentinel(u8, n, 0);
 
     // write pointer
@@ -2026,7 +2063,8 @@ fn resolvePercentEncodingsWithToLowerAndAsWeb(raw: []const u8, comptime toLower:
         } else if (asWeb and c == '+') {
             c = ' ';
         }
-        if (toLower and c <= 'Z' and c >= 'A') c += 'a' - 'A';
+        if (toLower and c <= 'Z' and c >= 'A')
+            c += 'a' - 'A';
         p[0] = c;
         p += 1;
     }
