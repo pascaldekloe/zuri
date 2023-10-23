@@ -27,7 +27,7 @@ path: ?[]const u8 = null,
 /// Segments append to the path component each with a leading slash character
 /// ("/") in order of appearance. Use an empty empty string at the end for a
 /// trailing slash.
-segments: []const []const u8 = &[0][]u8{},
+segments: []const []const u8 = &.{},
 
 query: ?[]const u8 = null,
 

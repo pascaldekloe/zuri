@@ -14,7 +14,7 @@ separator: u8 = ':',
 
 /// The opaque path consists of segments separated by a separator. Any separator
 /// occurences in the segements escape with percent-encoding.
-segments: []const []const u8 = &[0][]u8{},
+segments: []const []const u8 = &.{},
 
 query: ?[]const u8 = null,
 
