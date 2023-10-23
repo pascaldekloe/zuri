@@ -2,49 +2,45 @@ const Urview = @import("./Urview.zig");
 
 const std = @import("std");
 const ascii = std.ascii;
-const os = std.os;
+const heap = std.heap;
+const io = std.io;
+const log = std.log;
 const mem = std.mem;
-
-var buf: [1024]u8 = undefined;
-var fix = std.heap.FixedBufferAllocator.init(&buf);
-const allocator = fix.allocator();
+const Allocator = mem.Allocator;
+const os = std.os;
 
 pub fn main() !void {
-    // fetch fuzz input
-    const stdin = std.io.getStdIn();
-    // sync size with afl-fuzz(1) -G argument
-    var readb: [64:0]u8 = undefined;
-    const readn = try stdin.readAll(&readb);
-    if (readn < readb.len) readb[readn] = 0;
-
-    const ur = Urview.parse(&readb) catch return;
-
     defer if (fuzzFail) os.exit(1);
 
-    try verifyConstraints(ur, readb[0..readn]);
-    if (!fuzzFail) try verifyEscapeMatch(ur);
-    mem.doNotOptimizeAway(ur.ip6Address());
-    mem.doNotOptimizeAway(ur.portAsU16());
-    var read_buf: [8]u8 = undefined;
-    mem.doNotOptimizeAway(ur.readParam(&read_buf, "x"));
-    mem.doNotOptimizeAway(ur.readWebParam(&read_buf, "yz"));
+    // fetch fuzz input
+    const stdin = io.getStdIn();
+    // sync size with afl-fuzz(1) -G argument
+    var read_buf: [64:0]u8 = undefined;
+    const read_count = try stdin.readAll(&read_buf);
+    if (read_count < read_buf.len) read_buf[read_count] = 0;
 
-    allocator.free(try ur.internationalDomainName(allocator));
-    allocator.free(try ur.pathNorm("", allocator));
-    allocator.free(try ur.pathNorm("👯", allocator));
-    allocator.free(try ur.params(allocator)); // won't free Param elements
-    allocator.free(try ur.webParams(allocator));
+    const ur = Urview.parse(&read_buf) catch return;
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+
+    verifyConstraints(ur, read_buf[0..read_count], allocator);
+    verifyEscapeMatch(ur, allocator);
+    verifyResolves(ur, allocator);
+
+    if (gpa.detectLeaks())
+        fail("fuzzer leaks memory", .{});
 }
 
 var fuzzFail = false;
 
 fn fail(comptime format: []const u8, args: anytype) void {
     fuzzFail = true;
-    std.log.err(format, args);
+    log.err(format, args);
 }
 
 // VerifyConstraints checks the claims in field comments from Parts.
-fn verifyConstraints(ur: Urview, fuzz_in: []const u8) !void {
+fn verifyConstraints(ur: Urview, fuzz_in: []const u8, allocator: Allocator) void {
     const raw_scheme = ur.rawScheme();
     const raw_authority = ur.rawAuthority();
     const raw_userinfo = ur.rawUserinfo();
@@ -55,11 +51,16 @@ fn verifyConstraints(ur: Urview, fuzz_in: []const u8) !void {
     const raw_fragment = ur.rawFragment();
 
     // lossless mapping
-    {
-        const rejoin = try std.fmt.allocPrint(allocator, "{s}{s}{s}{s}{s}", .{ raw_scheme, raw_authority, raw_path, raw_query, raw_fragment });
-        defer allocator.free(rejoin);
-        if (!mem.eql(u8, rejoin, fuzz_in))
-            fail("raw components concatenated {s} do not equal original input {s}", .{ rejoin, fuzz_in });
+    if (mem.concat(allocator, u8, &.{
+        raw_scheme, raw_authority, raw_path, raw_query, raw_fragment,
+    })) |want| {
+        defer allocator.free(want);
+        if (!mem.eql(u8, want, fuzz_in)) {
+            fail("raw components joined in {s} do not equal fuzz input {s}", .{ want, fuzz_in });
+        }
+    } else |err| {
+        log.err("raw URI parts join error.{}", .{err});
+        os.exit(137);
     }
 
     // scheme is the only required component
@@ -76,11 +77,17 @@ fn verifyConstraints(ur: Urview, fuzz_in: []const u8) !void {
         if (raw_port.len != 0 and !mem.startsWith(u8, raw_port, ":"))
             fail("raw port {s} does not start with a colon character", .{raw_port});
 
-        const auth_components = .{ raw_userinfo, raw_host, raw_port };
-        const reformat = try std.fmt.allocPrint(allocator, "//{s}{s}{s}", auth_components);
-        defer allocator.free(reformat);
-        if (!mem.eql(u8, reformat, raw_authority))
-            fail("raw authority components reformatted {s} do not equal raw authority {s}", .{ reformat, raw_authority });
+        if (mem.concat(allocator, u8, &.{ "//", raw_userinfo, raw_host, raw_port })) |want| {
+            defer allocator.free(want);
+            if (!mem.eql(u8, want, raw_authority)) {
+                fail("raw authority components joined in {s} don't equal raw authority {s}", .{
+                    want, raw_authority,
+                });
+            }
+        } else |err| {
+            log.err("raw authority parts join error.{}", .{err});
+            os.exit(137);
+        }
     } else {
         if (raw_userinfo.len != 0)
             fail("raw userinfo {s} not zero with zero raw authority", .{raw_userinfo});
@@ -98,35 +105,95 @@ fn verifyConstraints(ur: Urview, fuzz_in: []const u8) !void {
         fail("raw fragment {s} does not start with hash character", .{raw_fragment});
 }
 
-// VerifyEscapeMatch requires a verifyConstraints pass.
-fn verifyEscapeMatch(ur: Urview) !void {
-    var s = try ur.scheme(allocator);
-    if (!ascii.eqlIgnoreCase(s, mem.trimRight(u8, ur.rawScheme(), ":")))
-        fail("escaped scheme {s} does not equal raw scheme {s} in lower-case excluding colon", .{ s, ur.rawScheme() });
-    allocator.free(s);
+fn verifyEscapeMatch(ur: Urview, allocator: Allocator) void {
+    if (fuzzFail) return;
 
-    var u = try ur.userinfo(allocator);
-    if (ur.equalsUserinfo(u) != ur.hasUserinfo())
-        fail("escaped user {s} is not matched by raw userinfo {s}", .{ u, ur.rawUserinfo() });
-    allocator.free(u);
+    if (ur.scheme(allocator)) |s| {
+        defer allocator.free(s);
+        if (!ascii.eqlIgnoreCase(s, mem.trimRight(u8, ur.rawScheme(), ":"))) {
+            fail("escaped scheme {s} does not equal raw scheme {s} in lower-case excluding colon", .{
+                s, ur.rawScheme(),
+            });
+        }
+    } else |err| fail("scheme resolve error.{}", .{err});
 
-    var h = try ur.host(allocator);
-    if (ur.equalsHost(h) != ur.hasAuthority())
-        fail("escaped host {s} is not matched by raw {s}, authority {s}", .{ h, ur.rawHost(), ur.rawAuthority() });
-    allocator.free(h);
+    if (ur.userinfo(allocator)) |u| {
+        defer allocator.free(u);
+        if (ur.equalsUserinfo(u) != ur.hasUserinfo()) {
+            fail("escaped user {s} is not matched by raw userinfo {s}", .{
+                u, ur.rawUserinfo(),
+            });
+        }
+    } else |err| fail("userinfo resolve error.{}", .{err});
 
-    var p = try ur.path(allocator);
-    if (!ur.equalsPath(p))
-        fail("escaped path {s} is not matched by raw {s}", .{ p, ur.rawPath() });
-    allocator.free(p);
+    if (ur.host(allocator)) |h| {
+        defer allocator.free(h);
+        if (ur.equalsHost(h) != ur.hasAuthority()) {
+            fail("escaped host {s} is not matched by raw {s}, authority {s}", .{
+                h, ur.rawHost(), ur.rawAuthority(),
+            });
+        }
+    } else |err| fail("host resolve error.{}", .{err});
 
-    var q = try ur.query(allocator);
-    if (ur.equalsQuery(q) != ur.hasQuery())
-        fail("escaped query {s} is not matched by raw {s}", .{ q, ur.rawQuery() });
-    allocator.free(q);
+    if (ur.path(allocator)) |p| {
+        defer allocator.free(p);
+        if (!ur.equalsPath(p)) {
+            fail("escaped path {s} is not matched by raw {s}", .{
+                p, ur.rawPath(),
+            });
+        }
+    } else |err| fail("path resolve error.{}", .{err});
 
-    var f = try ur.fragment(allocator);
-    if (ur.equalsFragment(f) != ur.hasFragment())
-        fail("escaped fragment {s} is not matched by raw {s}", .{ f, ur.rawFragment() });
-    allocator.free(f);
+    if (ur.query(allocator)) |q| {
+        defer allocator.free(q);
+        if (ur.equalsQuery(q) != ur.hasQuery()) {
+            fail("escaped query {s} is not matched by raw {s}", .{
+                q, ur.rawQuery(),
+            });
+        }
+    } else |err| fail("query resolve error.{}", .{err});
+
+    if (ur.fragment(allocator)) |f| {
+        defer allocator.free(f);
+        if (ur.equalsFragment(f) != ur.hasFragment()) {
+            fail("escaped fragment {s} is not matched by raw {s}", .{ f, ur.rawFragment() });
+        }
+    } else |err| fail("fragment resolve error.{}", .{err});
+}
+
+fn verifyResolves(ur: Urview, allocator: Allocator) void {
+    if (fuzzFail) return;
+
+    mem.doNotOptimizeAway(ur.ip6Address());
+    if (ur.internationalDomainName(allocator)) |s| {
+        allocator.free(s);
+    } else |err| fail("international domain-name resolve error.{}", .{err});
+
+    mem.doNotOptimizeAway(ur.portAsU16());
+
+    if (ur.pathNorm("", allocator)) |s| {
+        allocator.free(s);
+    } else |err| fail("path normalization error.{}", .{err});
+    if (ur.pathNorm("👯", allocator)) |s| {
+        allocator.free(s);
+    } else |err| fail("path normalization with Unicode replacement error.{}", .{err});
+
+    var read_buf: [8]u8 = undefined;
+    mem.doNotOptimizeAway(ur.readParam(&read_buf, "x"));
+    mem.doNotOptimizeAway(ur.readWebParam(&read_buf, "yz"));
+
+    if (ur.params(allocator)) |params| {
+        for (params) |p| {
+            allocator.free(p.key);
+            if (p.value) |s| allocator.free(s);
+        }
+        allocator.free(params);
+    } else |err| fail("parameter parse error.{}", .{err});
+    if (ur.webParams(allocator)) |params| {
+        for (params) |p| {
+            allocator.free(p.key);
+            if (p.value) |s| allocator.free(s);
+        }
+        allocator.free(params);
+    } else |err| fail("web-parameter parse replacement error.{}", .{err});
 }

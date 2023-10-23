@@ -1,44 +1,51 @@
-const std = @import("std");
-const os = std.os;
-
 const Urview = @import("./Urview.zig");
 const Urname = @import("./Urname.zig");
 
+const std = @import("std");
+const heap = std.heap;
+const io = std.io;
+const log = std.log;
+const mem = std.mem;
+const os = std.os;
+
 pub fn main() !void {
     // fetch fuzz input
-    const stdin = std.io.getStdIn();
+    const stdin = io.getStdIn();
     // sync size with afl-fuzz(1) -G argument
-    var readb: [64]u8 = undefined;
-    const readn = try stdin.readAll(&readb);
-    const fuzz_in: []const u8 = readb[0..readn];
+    var read_buffer: [64]u8 = undefined;
+    const read_count = try stdin.readAll(&read_buffer);
+    const fuzz_in: []const u8 = read_buffer[0..read_count];
 
-    var buf: [4 * readb.len + "urn:test:".len + "test:".len + 1]u8 = undefined;
-    var fix = std.heap.FixedBufferAllocator.init(&buf);
-    var allocator = fix.allocator();
-    const urn = Urname.newUrn("test", fuzz_in, "Ol", allocator) catch {
-        std.log.err("out of memory on {d} bytes of input with {d} bytes of space", .{ fuzz_in.len, buf.len });
-        std.os.exit(137);
-    };
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+
+    const urn = Urname.newUrn("test", fuzz_in, "Ol", allocator) catch |err|
+        fatal("URN construction error.{}", .{err});
 
     if (urn.len == 0) {
-        if (fuzz_in.len != 0) {
-            std.log.err("got zero string", .{});
-            std.os.exit(1);
-        }
+        if (fuzz_in.len != 0)
+            fatal("new URN got zero string from non-zero input", .{});
+
         return;
     }
 
-    const ur = Urview.parse(urn) catch |err| {
-        std.log.err("invalid URN result {s}: {}", .{ urn, err });
-        std.os.exit(1);
-    };
+    const ur = Urview.parse(urn) catch |err|
+        fatal("invalid URN result {s}: error.{}", .{ urn, err });
 
-    const want = std.mem.concat(allocator, u8, &.{ "test:", fuzz_in }) catch {
-        std.log.err("out of memory on {d} bytes of input with {d} bytes of space", .{ fuzz_in.len, buf.len });
-        std.os.exit(137);
-    };
-    if (!ur.equalsPath(want)) {
-        std.log.err("fuzz input does not match path {s}", .{want});
-        std.os.exit(1);
+    if (mem.concat(allocator, u8, &.{ "test:", fuzz_in })) |want| {
+        defer allocator.free(want);
+        if (!ur.equalsPath(want))
+            fatal("fuzz render {s} path mismatch", .{urn});
+    } else |err| {
+        fatal("compare string error.{}", .{err});
     }
+
+    allocator.free(urn);
+    if (gpa.detectLeaks())
+        fatal("fuzzer leaks memory", .{});
+}
+
+fn fatal(comptime format: []const u8, args: anytype) noreturn {
+    log.err(format, args);
+    os.exit(1);
 }

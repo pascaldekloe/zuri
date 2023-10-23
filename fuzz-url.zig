@@ -2,179 +2,182 @@ const Urview = @import("./Urview.zig");
 const Urlink = @import("./Urlink.zig");
 
 const std = @import("std");
+const heap = std.heap;
+const io = std.io;
+const log = std.log;
 const mem = std.mem;
+const os = std.os;
 
 pub fn main() !void {
     // fetch fuzz input
-    const stdin = std.io.getStdIn();
+    const stdin = io.getStdIn();
     // sync size with afl-fuzz(1) -G argument
-    var readb: [256]u8 = undefined;
-    const readn = try stdin.readAll(&readb);
-    var in: []const u8 = readb[0..readn];
-
-    var buf: [readb.len * 5]u8 = undefined;
-    var fix = std.heap.FixedBufferAllocator.init(&buf);
-    const allocator = fix.allocator();
+    var read_buf: [256]u8 = undefined;
+    const read_count = try stdin.readAll(&read_buf);
+    var fuzz_in: []const u8 = read_buf[0..read_count];
 
     // construct components from fuzz data in
     var ur = Urlink{};
-    in = load(&ur.host, in);
-    if (in.len > 3 and in[0] & 7 == 0) {
-        ur.port = mem.readPackedIntNative(u16, in, 1);
-        in = in[3..];
+    fuzz_in = sliceSome(&ur.host, fuzz_in);
+    if (fuzz_in.len > 3 and fuzz_in[0] & 7 == 0) {
+        ur.port = mem.readPackedIntNative(u16, fuzz_in, 1);
+        fuzz_in = fuzz_in[3..];
     }
-    in = loadOptional(&ur.userinfo, in);
-    in = loadOptional(&ur.query, in);
-    in = loadOptional(&ur.fragment, in);
+    fuzz_in = sliceSomeOptional(&ur.userinfo, fuzz_in);
+    fuzz_in = sliceSomeOptional(&ur.query, fuzz_in);
+    fuzz_in = sliceSomeOptional(&ur.fragment, fuzz_in);
 
-    if (in.len != 0) {
-        const seg_count = in[0] & 15;
-        const param_count = in[0] >> 4;
-        in = in[1..];
+    var seg_array = [3][]const u8{ "", "", "" };
+    var param_array = [3]Urlink.Param{ .{ .key = "a" }, .{ .key = "b" }, .{ .key = "c" } };
+    if (fuzz_in.len != 0) {
+        const seg_count = fuzz_in[0] & 15;
+        const param_count = fuzz_in[0] >> 4;
+        fuzz_in = fuzz_in[1..];
 
-        if (seg_count < 9) {
-            var segs = try allocator.alloc([]const u8, seg_count);
-            for (0..segs.len) |i| {
-                // init malloc
-                segs[i] = "";
-
-                in = load(&segs[i], in);
+        if (seg_count < seg_array.len) {
+            for (0..seg_count) |i| {
+                fuzz_in = sliceSome(&seg_array[i], fuzz_in);
             }
-            ur.segments = segs;
+            ur.segments = seg_array[0..seg_count];
         }
 
-        if (param_count < 9) {
-            var params = try allocator.alloc(Urlink.Param, param_count);
-            for (0..params.len) |i| {
-                // init malloc
-                params[i].key = "";
-                params[i].value = null;
-
-                in = load(&params[i].key, in);
-                in = loadOptional(&params[i].value, in);
+        if (param_count < param_array.len) {
+            for (0..param_count) |i| {
+                fuzz_in = sliceSome(&param_array[i].key, fuzz_in);
+                fuzz_in = sliceSomeOptional(&param_array[i].value, fuzz_in);
             }
-            ur.params = params;
+            ur.params = param_array[0..param_count];
         }
     }
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
 
     // build from components
-    const url = ur.newUrl("example", allocator) catch {
-        std.log.err("out of memory on {d} bytes of input with {d} bytes of space", .{ readn, buf.len });
-        std.os.exit(137);
-    };
+    const url = ur.newUrl("example", allocator) catch |err|
+        fatal("URL construction error.{}", .{err});
 
     // validate result
     const view = Urview.parse(url) catch |err| {
-        std.log.err("invalid URL result {s}: {}", .{ url, err });
-        std.os.exit(1);
+        fatal("invalid URL result {s}: {}", .{ url, err });
     };
 
     // validate lossless per component
-    if (view.hasUserinfo() != (ur.userinfo != null)) {
-        std.log.err("fuzz with userinfo {} became {} in URL {s}", .{
-            ur.userinfo != null,
-            view.hasUserinfo(),
-            url,
-        });
-        std.os.exit(1);
-    }
     if (ur.userinfo) |want| {
-        const got = try view.userinfo(allocator);
-        if (!mem.eql(u8, got, want)) {
-            std.log.err("userinfo {s} became {s} in URL {s}", .{ want, got, url });
-            std.os.exit(1);
+        if (!view.hasUserinfo())
+            fatal("fuzz userinfo {s} lost in {s}", .{ want, url });
+        if (view.userinfo(allocator)) |got| {
+            defer allocator.free(got);
+            if (!mem.eql(u8, got, want)) {
+                fatal("userinfo {s} became {s} in URL {s}", .{
+                    want, got, url,
+                });
+            }
+        } else |err| fatal("userinfo resolve error.{}", .{err});
+    } else if (view.hasUserinfo())
+        fatal("fuzz without userinfo became URL {s}", .{url});
+
+    if (view.host(allocator)) |h| {
+        defer allocator.free(h);
+        if (!mem.eql(u8, h, ur.host)) {
+            fatal("host {s} became {s} in URL {s}", .{
+                ur.host, h, url,
+            });
         }
-    }
+    } else |err| fatal("host resolve error.{}", .{err});
 
-    const h = try view.host(allocator);
-    if (!mem.eql(u8, h, ur.host)) {
-        std.log.err("host {s} became {s} in URL {s}", .{ ur.host, h, url });
-        std.os.exit(1);
-    }
-
-    if (view.hasPort() != (ur.port != null)) {
-        std.log.err("fuzz with port {} became {} in URL {s}", .{
-            ur.port != null,
-            view.hasPort(),
-            url,
-        });
-        std.os.exit(1);
-    }
     if (ur.port) |want| {
         if (view.portAsU16()) |got| {
             if (got != want) {
-                std.log.err("fuzz with port {d} became {d} in URL {s}", .{ want, got, url });
-                std.os.exit(1);
-            }
-        } else {
-            std.log.err("fuzz with port {d} became unparsable in URL {s}", .{ want, url });
-        }
-    }
-
-    if (view.hasPath() != (ur.segments.len != 0)) {
-        std.log.err("fuzz with path {} became {} in URL {s}", .{
-            ur.segments.len != 0,
-            view.hasPath(),
-            url,
-        });
-        std.os.exit(1);
-    }
-    if (ur.segments.len != 0) {
-        const want = try mem.join(allocator, "/", ur.segments);
-        const got = try view.path(allocator);
-        if (got.len == 0 or got[0] != '/' or !mem.eql(u8, got[1..], want)) {
-            std.log.err("fuzz with path {s} became {s} in URL {s}", .{ ur.segments, view.rawPath(), url });
-            std.os.exit(1);
-        }
-    }
-
-    if (view.hasQuery() != (ur.query != null or ur.params.len != 0)) {
-        std.log.err("fuzz with parameters {} became {} in URL {s}", .{
-            ur.query != null or ur.params.len != 0,
-            view.hasQuery(),
-            url,
-        });
-        std.os.exit(1);
-    }
-    if (ur.query == null and ur.params.len != 0) {
-        const params = try view.params(allocator);
-        if (params.len != ur.params.len) {
-            std.log.err("fuzz with {d} parameters became {d} parameters in URL {s}", .{
-                ur.params.len,
-                params.len,
-                url,
-            });
-            std.os.exit(1);
-        }
-        for (ur.params, 0..) |want, i| {
-            if (!mem.eql(u8, want.key, params[i].key) or (want.value == null) != (params[i].value == null) or want.value != null and !mem.eql(u8, want.value.?, params[i].value.?)) {
-                std.log.err("fuzz with parameter {d} {s}={any} does not match URL {s}", .{
-                    i + 1, want.key, want.value, url,
+                fatal("fuzz with port {d} became {d} in URL {s}", .{
+                    want, got, url,
                 });
-                std.os.exit(1);
+            }
+        } else fatal("fuzz with port {d} became URL {s}", .{ want, url });
+    } else if (view.hasPort())
+        fatal("fuzz without port became URL {s}", .{url});
+
+    if (ur.segments.len != 0) {
+        const want = mem.join(allocator, "/", ur.segments) catch |err|
+            fatal("path match error.{}", .{err});
+        defer allocator.free(want);
+
+        if (view.path(allocator)) |got| {
+            defer allocator.free(got);
+            if (got.len == 0 or got[0] != '/' or !mem.eql(u8, got[1..], want)) {
+                fatal("fuzz with path {s} became {s} in URL {s}", .{
+                    ur.segments, view.rawPath(), url,
+                });
+            }
+        } else |err| fatal("path resolve error.{}", .{err});
+    } else if (view.hasPath())
+        fatal("fuzz without path segments became URL {s}", .{url});
+
+    if (ur.params.len == 0) {
+        if ((ur.query != null) != view.hasQuery())
+            fatal("fuzz with query {?s} became URL {s}", .{ ur.query, url });
+    } else if (ur.query != null) {
+        if (!view.hasQuery())
+            fatal("fuzz with query and parameters got lost in URL {s}", .{url});
+    } else { // fuzz with params and no query
+        if (!view.hasQuery()) {
+            fatal("fuzz with {d} parameter got lost in URL {s}", .{
+                ur.params.len, url,
+            });
+        }
+
+        // parse
+        var params = view.params(allocator) catch |err|
+            fatal("parameter resolve error.{}", .{err});
+        defer { // free memory
+            for (params) |p| {
+                allocator.free(p.key);
+                if (p.value) |s| allocator.free(s);
+            }
+            allocator.free(params);
+        }
+
+        // compare
+        if (params.len != ur.params.len) {
+            fatal("fuzz with {d} parameters became {d} parameters in URL {s}", .{
+                ur.params.len, params.len, url,
+            });
+        }
+        for (params, ur.params, 1..) |got, want, param_count| {
+            if (!mem.eql(u8, got.key, want.key) or (got.value == null) != (want.value == null) or got.value != null and !mem.eql(u8, got.value.?, want.value.?)) {
+                fatal("fuzz parameter {d} in URL production {s} doesn't match fuzz input {s}={?s}", .{
+                    param_count, url, want.key, want.value,
+                });
             }
         }
     }
 
-    if (view.hasFragment() != (ur.fragment != null)) {
-        std.log.err("fuzz with fragment {} became {} in URL {s}", .{
-            ur.fragment != null,
-            view.hasFragment(),
-            url,
-        });
-        std.os.exit(1);
-    }
     if (ur.fragment) |want| {
-        const got = try view.fragment(allocator);
-        if (!mem.eql(u8, got, want)) {
-            std.log.err("fragment {s} became {s} in URL {s}", .{ want, got, url });
-            std.os.exit(1);
-        }
-    }
+        if (!view.hasFragment())
+            fatal("fuzz with fragment {s} became URL {s}", .{ want, url });
+        if (view.fragment(allocator)) |got| {
+            defer allocator.free(got);
+            if (!mem.eql(u8, got, want)) {
+                fatal("fragment {s} became {s} in URL {s}", .{
+                    want, got, url,
+                });
+            }
+        } else |err| fatal("fragment resolve error.{}", .{err});
+    } else if (view.hasFragment())
+        fatal("fuzz withouth fragment became URL {s}", .{url});
+
+    allocator.free(url);
+    if (gpa.detectLeaks())
+        fatal("fuzzer leaks memory", .{});
 }
 
-/// Load a string from fuzz_data sometimes, and return the fuzz_data remainder.
-fn load(to: *[]const u8, fuzz_data: []const u8) []const u8 {
+fn fatal(comptime format: []const u8, args: anytype) noreturn {
+    log.err(format, args);
+    os.exit(1);
+}
+
+/// Slice a string from fuzz_data sometimes, and return the remainder.
+fn sliceSome(to: *[]const u8, fuzz_data: []const u8) []const u8 {
     // skip on EOF
     if (fuzz_data.len == 0) return "";
     var in = fuzz_data[1..];
@@ -187,8 +190,8 @@ fn load(to: *[]const u8, fuzz_data: []const u8) []const u8 {
     return in[size..];
 }
 
-/// Load a string from fuzz_data sometimes, and return the fuzz_data remainder.
-fn loadOptional(to: *?[]const u8, fuzz_data: []const u8) []const u8 {
+/// Slice a string from fuzz_data sometimes, and return the remainder.
+fn sliceSomeOptional(to: *?[]const u8, fuzz_data: []const u8) []const u8 {
     // skip on EOF
     if (fuzz_data.len == 0) return "";
     // skip 7 out of 8 times
