@@ -3,6 +3,10 @@
 ## About
 
 … a library for strict URI handling, written in the Zig programming language.
+The project was an experiment to learn about new and old technologies.
+Unfortunately, the Zig lizzard turned out to be inheritly unreliable
+[by choice](https://github.com/ziglang/zig/issues/17668#issuecomment-1778172138).
+⚠️ The code plus setup is left as a reference only.
 
 This is free and unencumbered software released into the
 [public domain](https://creativecommons.org/publicdomain/zero/1.0).
@@ -141,13 +145,13 @@ your machine.
 
 ```
 benchmark newUrl does http://www.w3.org/1999/02/22-rdf-syntax-ns.
-URL construction took 23.6 ns on average
+URL construction took 25.4 ns on average
 benchmark newIp6Url does http://[6874:7470:3a2f:2f77:7777:2e77:332e:6f72]/1999/02/22-rdf-syntax-ns.
-IPv6 URL construction took 30.9 ns on average
+IPv6 URL construction took 31.8 ns on average
 benchmark newUrn does urn:bench:99%2F02%2F22-rdf-syntax-ns%23Description.
-URN construction took 22.5 ns on average
+URN construction took 23.7 ns on average
 benchmark parse does http://www.w3.org/1999/02/22-rdf-syntax-ns#Description.
-parse took 24.2 ns on average
+parse took 23.2 ns on average
 ```
 
 
